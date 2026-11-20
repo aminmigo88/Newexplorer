@@ -89,13 +89,23 @@ final class LocationChoiceTests: XCTestCase {
         addedFolder.tap()
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)
 
-        // Single files still open in place from Browse Files locations.
-        app.buttons["Pane A location"].tap()
-        app.buttons["Browse Files locations"].firstMatch.tap()
-        enterFixture(in: app)
-        tap("root-file", in: app)
+        // Single files still open in place from Browse Files locations. A pick the simulator
+        // drops stays dropped in that picker, so retry with a fresh launch.
         let selection = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane A location", "Selected files")).firstMatch
-        open(confirm, until: selection, in: app)
+        var delivered = false
+        for attempt in 1...3 {
+            app.buttons["Pane A location"].tap()
+            app.buttons["Browse Files locations"].firstMatch.tap()
+            enterFixture(in: app)
+            tap("root-file", in: app)
+            if confirm.waitForExistence(timeout: 5) && confirm.isEnabled { confirm.tap() }
+            if selection.waitForExistence(timeout: 8) { delivered = true; break }
+            XCTContext.runActivity(named: "File pick not delivered, attempt \(attempt)") { _ in }
+            app.terminate()
+            app.launch()
+            XCTAssertTrue(app.buttons["Pane A location"].waitForExistence(timeout: 15))
+        }
+        XCTAssertTrue(delivered, "The file pick never reached the pane. " + app.debugDescription)
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
