@@ -47,7 +47,7 @@ for target,folder,ext,typ in targets:
     sources=obj(target+'src','PBXSourcesBuildPhase',buildActionMask=2147483647,files=builds,runOnlyForDeploymentPostprocessing=0)
     fw=obj(target+'fw','PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[ID(n+'link') for n in ['AMSMB2','ZIPFoundation','LibArchive']] if app else [],runOnlyForDeploymentPostprocessing=0)
     suffix = {'App': '', 'Tests': '.tests', 'UITests': '.uitests'}[folder]
-    cfg={'PRODUCT_BUNDLE_IDENTIFIER':'com.aminmigo88.newexplorer'+suffix,'PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks','@loader_path/Frameworks'],'MARKETING_VERSION':'0.2.2','CURRENT_PROJECT_VERSION':'4'}
+    cfg={'PRODUCT_BUNDLE_IDENTIFIER':'app.ximenia9398.cheetah4988'+suffix,'PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks','@loader_path/Frameworks'],'MARKETING_VERSION':'0.3.0','CURRENT_PROJECT_VERSION':'5'}
     phases=[sources,fw,resourcePhase]
     deps=[]
     if app:

@@ -11,6 +11,19 @@ enum FileActions {
     static func perform(_ action: FileAction, at location: Location) async throws {
         switch location {
         case .selectedFiles: throw ExplorerError("Open the containing folder in this pane to change its contents.")
+        case let .place(place):
+            guard let root = await Places.shared.root(place) else { throw ExplorerError("Open the top of \(place.title) first.") }
+            let rows: [Entry]
+            switch action {
+            case .createFolder: rows = []
+            case let .rename(entry, _): rows = [entry]
+            case let .delete(entries): rows = entries
+            }
+            // Only items stored at the top level live in the saved folder; app folders are separate.
+            guard rows.allSatisfy({ $0.placeRole == .rootItem }) else {
+                throw ExplorerError("App folders can’t be renamed or deleted here. Long-press one to rename or remove it from the list.")
+            }
+            try await perform(action, at: .folder(root, root.url))
         case let .folder(grant, folder):
             try await Task.detached {
                 try withExtendedLifetime(grant) {

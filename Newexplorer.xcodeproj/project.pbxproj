@@ -172,6 +172,16 @@
 			"isa" = "PBXBuildFile";
 			"fileRef" = "E98E1B537AD96F966684D06E";
 		};
+		"6BD25613055A4E6CED158E90" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "Places.swift";
+			"sourceTree" = "<group>";
+		};
+		"DA3D1D219A1D2B9177324F2C" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "6BD25613055A4E6CED158E90";
+		};
 		"F9DE5AA74410BC775EBEDAE3" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -214,7 +224,7 @@
 		};
 		"FC4A695F02A8A53A129DCB9A" = {
 			"isa" = "PBXGroup";
-			"children" = ("88F3D4E69B94F597B8C78422","993749BC9D8543713E34235A","5DB1674B16A50DAE8FEC0062","BE6DBC174E6F2DB4F8036001","FF804D86D16F2D991E0AF959","F32DF06925FE4E3FF4DE8EE7","E98E1B537AD96F966684D06E","F9DE5AA74410BC775EBEDAE3","A9BCA438417D62B8BB39B2EE","3685E330EC5277A9DD5661C6","A81B09D9521597EBCAF0CC8B",);
+			"children" = ("88F3D4E69B94F597B8C78422","993749BC9D8543713E34235A","5DB1674B16A50DAE8FEC0062","BE6DBC174E6F2DB4F8036001","FF804D86D16F2D991E0AF959","F32DF06925FE4E3FF4DE8EE7","E98E1B537AD96F966684D06E","6BD25613055A4E6CED158E90","F9DE5AA74410BC775EBEDAE3","A9BCA438417D62B8BB39B2EE","3685E330EC5277A9DD5661C6","A81B09D9521597EBCAF0CC8B",);
 			"sourceTree" = "<group>";
 			"path" = "App";
 		};
@@ -227,7 +237,7 @@
 		"C83DF79ED967FFBF9CAB8BC9" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = 2147483647;
-			"files" = ("8C74F6DE24091B8EF7CEE43A","7CB8246D815FCD2255920A23","EE41C768EBAEDAD4227CD940","0A5CFBF45EFA36620BB981F0","FFCA4CDA170E8F478A3A3CD5","82D12FE723B35D98C54C36A5","99E8E04252650A4E805CDAF3","CCF588A153175D2D27080935","496F937A080696367E89B4F0",);
+			"files" = ("8C74F6DE24091B8EF7CEE43A","7CB8246D815FCD2255920A23","EE41C768EBAEDAD4227CD940","0A5CFBF45EFA36620BB981F0","FFCA4CDA170E8F478A3A3CD5","82D12FE723B35D98C54C36A5","99E8E04252650A4E805CDAF3","DA3D1D219A1D2B9177324F2C","CCF588A153175D2D27080935","496F937A080696367E89B4F0",);
 			"runOnlyForDeploymentPostprocessing" = 0;
 		};
 		"00C8D127492E1596DCFF2053" = {
@@ -256,13 +266,13 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.aminmigo88.newexplorer";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.2.2";
-				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "0.3.0";
+				"CURRENT_PROJECT_VERSION" = "5";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_FILE" = "App/Info.plist";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Newexplorer";
@@ -279,13 +289,13 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.aminmigo88.newexplorer";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.2.2";
-				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "0.3.0";
+				"CURRENT_PROJECT_VERSION" = "5";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_FILE" = "App/Info.plist";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Newexplorer";
@@ -372,13 +382,13 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.aminmigo88.newexplorer.tests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.tests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.2.2";
-				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "0.3.0";
+				"CURRENT_PROJECT_VERSION" = "5";
 				"TEST_HOST" = "$(BUILT_PRODUCTS_DIR)/Newexplorer.app/Newexplorer";
 				"BUNDLE_LOADER" = "$(TEST_HOST)";
 			};
@@ -387,13 +397,13 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.aminmigo88.newexplorer.tests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.tests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.2.2";
-				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "0.3.0";
+				"CURRENT_PROJECT_VERSION" = "5";
 				"TEST_HOST" = "$(BUILT_PRODUCTS_DIR)/Newexplorer.app/Newexplorer";
 				"BUNDLE_LOADER" = "$(TEST_HOST)";
 			};
@@ -472,13 +482,13 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.aminmigo88.newexplorer.uitests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.uitests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.2.2";
-				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "0.3.0";
+				"CURRENT_PROJECT_VERSION" = "5";
 				"TEST_TARGET_NAME" = "Newexplorer";
 			};
 		};
@@ -486,13 +496,13 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "com.aminmigo88.newexplorer.uitests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.uitests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.2.2";
-				"CURRENT_PROJECT_VERSION" = "4";
+				"MARKETING_VERSION" = "0.3.0";
+				"CURRENT_PROJECT_VERSION" = "5";
 				"TEST_TARGET_NAME" = "Newexplorer";
 			};
 		};

@@ -93,3 +93,68 @@ extension TransferTests {
         XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("keep.bin")), Data([7]))
     }
 }
+
+extension TransferTests {
+    @MainActor
+    func testPlaceCombinesTopLevelAndAddedFoldersAndPastesIntoTopLevel() async throws {
+        let base = try Files.workspace()
+        defer {
+            try? Files.fm.removeItem(at: base)
+            UserDefaults.standard.removeObject(forKey: Places.storeKey)
+        }
+        let root = base.appendingPathComponent("File Provider Storage")
+        let other = base.appendingPathComponent("Other app/Documents")
+        try Files.fm.createDirectory(at: root.appendingPathComponent("Downloads"), withIntermediateDirectories: true)
+        try Files.fm.createDirectory(at: other, withIntermediateDirectories: true)
+        try Data([1]).write(to: root.appendingPathComponent("top.txt"))
+        try Data([2]).write(to: other.appendingPathComponent("game.sav"))
+
+        let result = await Places.shared.add([root, other, other], to: .onMyIPhone)
+        XCTAssertEqual(result.roots, [.onMyIPhone])
+        XCTAssertEqual(result.added, 1)
+        XCTAssertEqual(result.already, 1)
+
+        let rows = try await Directory.list(.place(.onMyIPhone))
+        XCTAssertEqual(Set(rows.map(\.name)), ["Downloads", "top.txt", "Documents", Places.appName])
+        let added = try XCTUnwrap(rows.first { $0.placeRole == .savedFolder })
+        let folder = try XCTUnwrap(Places.shared.location(for: added, in: .onMyIPhone))
+        guard case .place(.onMyIPhone)? = folder.parent else { return XCTFail("Up from an added folder should return to On My iPhone") }
+        let downloads = try XCTUnwrap(rows.first { $0.name == "Downloads" })
+        let inside = try XCTUnwrap(Places.shared.location(for: downloads, in: .onMyIPhone))
+        guard case .place(.onMyIPhone)? = inside.parent else { return XCTFail("Up from a top-level folder should return to On My iPhone") }
+
+        let contents = try await Directory.list(folder)
+        let save = try XCTUnwrap(contents.first { $0.name == "game.sav" })
+        try await Transfer.copy(save, from: folder, to: .place(.onMyIPhone))
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("game.sav")), Data([2]))
+
+        let top = try XCTUnwrap(rows.first { $0.name == "top.txt" })
+        try await FileActions.perform(.delete([top]), at: .place(.onMyIPhone))
+        XCTAssertFalse(Files.fm.fileExists(atPath: root.appendingPathComponent("top.txt").path))
+        do {
+            try await FileActions.perform(.delete([added]), at: .place(.onMyIPhone))
+            XCTFail("App folders must only be removable from the list")
+        } catch is ExplorerError { }
+
+        Places.shared.rename(added, in: .onMyIPhone, to: "Game")
+        let renamed = try await Directory.list(.place(.onMyIPhone))
+        XCTAssertTrue(renamed.contains { $0.name == "Game" && $0.placeRole == .savedFolder })
+        Places.shared.remove(added, from: .onMyIPhone)
+        let remaining = try await Directory.list(.place(.onMyIPhone))
+        XCTAssertFalse(remaining.contains { $0.placeRole == .savedFolder })
+        XCTAssertTrue(Files.fm.fileExists(atPath: other.appendingPathComponent("game.sav").path))
+    }
+
+    func testCloudStubsListUnderTheirRealName() throws {
+        let root = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: root) }
+        try Data().write(to: root.appendingPathComponent(".report.pdf.icloud"))
+        try Data([3]).write(to: root.appendingPathComponent("local.txt"))
+        let rows = try Directory.localEntries(root)
+        XCTAssertEqual(Set(rows.map(\.name)), ["report.pdf", "local.txt"])
+        XCTAssertEqual(rows.first { $0.name == "report.pdf" }?.inCloud, true)
+        XCTAssertEqual(rows.first { $0.name == "local.txt" }?.inCloud, false)
+        XCTAssertEqual(Places.readableName(bundleID: "com.google.ios.youtube"), "Youtube")
+        XCTAssertEqual(Places.readableName(bundleID: "com.udemy.ios"), "Udemy")
+    }
+}

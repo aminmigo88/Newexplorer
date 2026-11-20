@@ -12,10 +12,13 @@ enum Transfer {
         let item = temporary.appendingPathComponent(try safeName(entry.name))
         let prepared: URL
         switch origin {
-        case .folder, .selectedFiles:
+        case .folder, .selectedFiles, .place:
             guard let url = origin.fileURL(for: entry) else { throw ExplorerError("Select this file again in Files.") }
+            let inCloud = entry.inCloud
             try await Task.detached {
                 try withExtendedLifetime(origin) {
+                    // A coordinated read waits for iCloud to download the item.
+                    if inCloud { try? Files.fm.startDownloadingUbiquitousItem(at: url) }
                     try Files.read(url) { try Files.copyTree($0, to: item) }
                 }
             }.value
@@ -31,6 +34,9 @@ enum Transfer {
         case .selectedFiles: throw ExplorerError("Choose a destination folder before pasting.")
         case let .folder(grant, folder):
             try await Task.detached { try withExtendedLifetime(grant) { try Files.publish(prepared, into: folder) } }.value
+        case let .place(place):
+            guard let root = await Places.shared.root(place) else { throw ExplorerError("Open the top of \(place.title) before pasting there.") }
+            try await Task.detached { try withExtendedLifetime(root) { try Files.publish(prepared, into: root.url) } }.value
         case let .share(server, path):
             let name = try windowsName(prepared.lastPathComponent)
             let final = server.child(path, name)
