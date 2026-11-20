@@ -50,8 +50,8 @@ final class LocationChoiceTests: XCTestCase {
         // The top level does not include other apps' folders; add the fixture app's folder.
         app.buttons["place-add-A"].tap()
         showOnMyIPhone(in: app)
-        cell("Folder Test Source", in: app).tap()
-        if cell("root-file", in: app).waitForExistence(timeout: 2) {
+        tap("Folder Test Source", in: app)
+        if visible("root-file", in: app, timeout: 2) != nil {
             XCTContext.runActivity(named: "Tapping a folder while adding opened it") { _ in }
         }
         open(confirm, until: addedFolder, in: app)
@@ -71,9 +71,7 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertTrue(choose.waitForExistence(timeout: 15))
         choose.tap()
         enterFixture(in: app)
-        let downloads = cell("Downloads", in: app)
-        XCTAssertTrue(downloads.waitForExistence(timeout: 8), app.debugDescription)
-        downloads.tap()
+        tap("Downloads", in: app)
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
         open(confirm, until: app.buttons["item-B-inside.txt"], in: app)
         func checkFolder() {
@@ -95,7 +93,7 @@ final class LocationChoiceTests: XCTestCase {
         app.buttons["Pane A location"].tap()
         app.buttons["Browse Files locations"].firstMatch.tap()
         enterFixture(in: app)
-        cell("root-file", in: app).tap()
+        tap("root-file", in: app)
         let selection = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane A location", "Selected files")).firstMatch
         open(confirm, until: selection, in: app)
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)
@@ -111,43 +109,44 @@ final class LocationChoiceTests: XCTestCase {
         XCTFail("The pick never reached the pane. " + app.debugDescription)
     }
 
-    private func cell(_ name: String, in app: XCUIApplication) -> XCUIElement {
-        app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@ OR label BEGINSWITH %@", name, name)).firstMatch
+    // First visible element named like a picker item ("Downloads" or "Downloads, 1 item").
+    // The panes' own rows can share a name but sit behind the picker, so they are not hittable.
+    private func visible(_ name: String, in app: XCUIApplication, timeout: TimeInterval = 8) -> XCUIElement? {
+        let query = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@ OR identifier BEGINSWITH %@", name, name + ",", name + ","))
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let element = query.allElementsBoundByIndex.first(where: { $0.exists && $0.isHittable }) { return element }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        } while Date() < deadline
+        return nil
+    }
+
+    private func tap(_ name: String, in app: XCUIApplication) {
+        guard let element = visible(name, in: app) else { return XCTFail("\(name) is not visible. " + app.debugDescription) }
+        element.tap()
     }
 
     // Shows On My iPhone in the picker, where the fixture app's folder is listed.
     private func showOnMyIPhone(in app: XCUIApplication) {
-        let fixture = cell("Folder Test Source", in: app)
-        if fixture.waitForExistence(timeout: 3) { return }
-        let back = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@", "On My iPhone")).firstMatch
-        if back.exists {
-            back.tap()
-        } else {
+        for attempt in 1...4 {
+            if visible("Folder Test Source", in: app, timeout: 3) != nil { return }
+            let back = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@", "On My iPhone")).firstMatch
+            if back.exists && back.isHittable {
+                XCTContext.runActivity(named: "Back to On My iPhone, attempt \(attempt)") { _ in }
+                back.tap()
+                continue
+            }
             let browse = app.buttons["Browse"].firstMatch
             if browse.exists { browse.tap() }
-            // The app's own "On My iPhone" button sits behind the picker, so tap the visible match.
-            let device = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "On My iPhone", "On My iPhone,"))
-            tapVisible(device)
+            visible("On My iPhone", in: app, timeout: 5)?.tap()
         }
-        XCTAssertTrue(fixture.waitForExistence(timeout: 8), app.debugDescription)
-    }
-
-    private func tapVisible(_ query: XCUIElementQuery, timeout: TimeInterval = 5) {
-        let deadline = Date().addingTimeInterval(timeout)
-        repeat {
-            if let element = query.allElementsBoundByIndex.first(where: { $0.exists && $0.isHittable }) {
-                element.tap()
-                return
-            }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
-        } while Date() < deadline
+        XCTAssertNotNil(visible("Folder Test Source", in: app, timeout: 5), app.debugDescription)
     }
 
     private func enterFixture(in app: XCUIApplication) {
-        let rootFile = cell("root-file", in: app)
-        if rootFile.waitForExistence(timeout: 2) { return }
+        if visible("root-file", in: app, timeout: 2) != nil { return }
         showOnMyIPhone(in: app)
-        cell("Folder Test Source", in: app).tap()
-        XCTAssertTrue(rootFile.waitForExistence(timeout: 8), app.debugDescription)
+        tap("Folder Test Source", in: app)
+        XCTAssertNotNil(visible("root-file", in: app), app.debugDescription)
     }
 }
