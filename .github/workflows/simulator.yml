@@ -5,45 +5,28 @@ permissions:
 jobs:
   tests:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - name: Pick an installed iPhone simulator
         run: |
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["devices"]; print(next(d["udid"] for runtime,devices in reversed(list(runtimes.items())) if "iOS-" in runtime for d in devices if d["name"].startswith("iPhone") and d["isAvailable"]))')
           echo "SIMULATOR_ID=$device" >> "$GITHUB_ENV"
-      - name: Test the app
+      - name: Diagnose picker variants (temporary branch)
         run: |
           xcodebuild -quiet build-for-testing -project Newexplorer.xcodeproj -scheme Newexplorer \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO
           bash Scripts/prepare_picker_test.sh build/simulator/Build/Products/Debug-iphonesimulator/Newexplorer.app "$SIMULATOR_ID"
-          TEST_RUNNER_FILES_FIXTURE=1 xcodebuild -quiet test-without-building -derivedDataPath build/simulator -project Newexplorer.xcodeproj -scheme Newexplorer \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
-          xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 7, result'
-          xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
-            --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' | grep 'Local root .* Open'
-      - name: Report simulator test failures
-        if: failure()
-        run: |
-          if [ -d SimulatorTests.xcresult ]; then
-            xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult
-          fi
-      - name: Build unsigned iPhone app
-        if: github.ref == 'refs/heads/main'
-        run: |
-          xcodebuild -quiet build -project Newexplorer.xcodeproj -scheme Newexplorer \
-            -configuration Release -destination 'generic/platform=iOS' \
-            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO
-      - name: Package and validate IPA
-        if: github.ref == 'refs/heads/main'
-        run: python3 Scripts/package_ipa.py
-      - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main'
-        with:
-          name: Newexplorer-v0.2.2-unsigned
-          path: |
-            output/*.ipa
-            output/SHA256.txt
-          if-no-files-found: error
+          start=$(date '+%Y-%m-%d %H:%M:%S')
+          xcodebuild -quiet test-without-building -derivedDataPath build/simulator -project Newexplorer.xcodeproj -scheme Newexplorer \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -only-testing:NewexplorerUITests/PickerDiagnosticTests \
+            -resultBundlePath Diag.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO || true
+          echo "=== RESULTS ==="
+          for t in test1ModalMulti test2ModalMultiItem test3ModalMultiCopy test4ModalSingle test5ModalMultiFullScreen test6Importer test7EmbeddedSheet; do
+            xcrun xcresulttool get test-results activities --path Diag.xcresult --test-id "PickerDiagnosticTests/$t()" | grep -o 'NXRESULT[^"]*' || echo "NXRESULT $t no-result"
+          done
+          echo "=== APP AND PICKER LOG ==="
+          xcrun simctl spawn "$SIMULATOR_ID" log show --start "$start" --style compact --info --debug \
+            --predicate '(process == "Newexplorer" AND (eventMessage CONTAINS[c] "NXDIAG" OR eventMessage CONTAINS[c] "pick" OR eventMessage CONTAINS[c] "materializ" OR eventMessage CONTAINS[c] "delegate" OR eventMessage CONTAINS[c] "sandbox" OR eventMessage CONTAINS[c] "bookmark" OR messageType == 16 OR messageType == 17)) OR ((process CONTAINS[c] "DocumentManager" OR process == "fileproviderd") AND (eventMessage CONTAINS[c] "pick" OR eventMessage CONTAINS[c] "error" OR eventMessage CONTAINS[c] "fail" OR eventMessage CONTAINS[c] "open"))' \
+            | cut -c1-400 | tail -700

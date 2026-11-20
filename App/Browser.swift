@@ -90,6 +90,9 @@ struct NewexplorerApp: App {
 struct ExplorerView: View {
     @StateObject private var first = Pane(label: "A")
     @StateObject private var second = Pane(label: "B")
+    @State private var legacy: LegacyRequest?
+    @State private var importing = false
+    @State private var importerTarget: Pane?
     @State private var shelf: Shelf?
     @State private var transferStatus: String?
     @State private var notice: String?
@@ -134,6 +137,17 @@ struct ExplorerView: View {
         }
         .tint(.teal)
         .task { async let a: Void = first.start(); async let b: Void = second.start(); _ = await (a, b) }
+        .sheet(item: $legacy) { request in
+            LegacyFilesPicker(mode: request.mode) { urls in
+                legacy = nil
+                handle(urls, mode: request.mode, pane: request.pane)
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.data, .package], allowsMultipleSelection: true) { result in
+            NSLog("NXDIAG importer result %@", "\(result)")
+            if case let .success(urls) = result, let pane = importerTarget { handle(urls, mode: .files, pane: pane) }
+            importerTarget = nil
+        }
         .alert("Newexplorer", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
@@ -149,16 +163,19 @@ struct ExplorerView: View {
                  }, paste: { transfer(into: model) }, scan: { scan(model) }, archive: { archive($0, extract: $1, pane: model) }, action: { edit($0, pane: model) })
     }
     private func choose(_ mode: FilesPickerMode, for pane: Pane) {
-        FilesPicker.present(mode) { urls in
-            guard let url = urls.first else { return }
-            if mode == .folder {
-                let grant = FolderGrant(url)
-                Task { await pane.useFolder(grant, saveBookmark: true) }
-            } else {
-                var seen = Set<URL>()
-                let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
-                Task { await pane.open(.selectedFiles(grants)) }
-            }
+        if mode == .files && PickerDiag.importer { importerTarget = pane; importing = true; return }
+        if PickerDiag.embed { legacy = LegacyRequest(mode: mode, pane: pane); return }
+        FilesPicker.present(mode) { urls in handle(urls, mode: mode, pane: pane) }
+    }
+    private func handle(_ urls: [URL], mode: FilesPickerMode, pane: Pane) {
+        guard let url = urls.first else { return }
+        if mode == .folder {
+            let grant = FolderGrant(url)
+            Task { await pane.useFolder(grant, saveBookmark: true) }
+        } else {
+            var seen = Set<URL>()
+            let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
+            Task { await pane.open(.selectedFiles(grants)) }
         }
     }
     private func edit(_ action: FileAction, pane: Pane) {
