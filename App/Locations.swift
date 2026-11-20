@@ -217,3 +217,90 @@ enum Directory {
         }
     }
 }
+
+enum SortKey: String, CaseIterable {
+    case name, date, size, kind
+    var title: String { rawValue.capitalized }
+    // Name and Kind start A to Z, Date starts newest first, Size starts largest first.
+    func direction(reversed: Bool) -> String {
+        switch self {
+        case .name, .kind: return reversed ? "Z to A" : "A to Z"
+        case .date: return reversed ? "Oldest first" : "Newest first"
+        case .size: return reversed ? "Smallest first" : "Largest first"
+        }
+    }
+}
+
+struct ListOrder: Equatable {
+    var key: SortKey
+    var reversed = false
+
+    init(key: SortKey, reversed: Bool = false) {
+        self.key = key
+        self.reversed = reversed
+    }
+    init(stored: String?, fallback: ListOrder) {
+        let parts = (stored ?? "").split(separator: ".").map(String.init)
+        if let first = parts.first, let key = SortKey(rawValue: first) {
+            self.key = key
+            self.reversed = parts.dropFirst().first == "reversed"
+        } else {
+            self = fallback
+        }
+    }
+    var stored: String { key.rawValue + (reversed ? ".reversed" : "") }
+
+    // Folders stay on top. Missing dates or sizes go last; ties fall back to the name.
+    func sorted(_ rows: [Entry]) -> [Entry] {
+        rows.sorted { a, b in
+            if a.isFolder != b.isFolder { return a.isFolder }
+            if let first = precedes(a, b) { return first }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+    }
+    private func precedes(_ a: Entry, _ b: Entry) -> Bool? {
+        switch key {
+        case .name: return ordered(a.name, b.name)
+        case .kind: return ordered(kind(a), kind(b))
+        case .date: return later(a.date, b.date)
+        case .size: return later(a.isFolder ? nil : a.bytes, b.isFolder ? nil : b.bytes)
+        }
+    }
+    private func kind(_ row: Entry) -> String { row.isFolder ? "" : (row.name as NSString).pathExtension.lowercased() }
+    private func ordered(_ x: String, _ y: String) -> Bool? {
+        let result = x.localizedStandardCompare(y)
+        return result == .orderedSame ? nil : (result == .orderedAscending) != reversed
+    }
+    private func later<T: Comparable>(_ x: T?, _ y: T?) -> Bool? {
+        switch (x, y) {
+        case let (.some(x), .some(y)): return x == y ? nil : (x > y) != reversed
+        case (.some, .none): return true
+        case (.none, .some): return false
+        case (.none, .none): return nil
+        }
+    }
+}
+
+// Send drops a copy into the other pane only where a paste makes sense:
+// not into Photos, iCloud Drive, a file selection, or the folder the file is already in.
+enum SendRule {
+    @MainActor static func allows(_ destination: Location, sourceFolder: URL?) -> Bool {
+        switch destination {
+        case .photos, .selectedFiles: return false
+        case .share: return true
+        case let .place(place):
+            guard place != .iCloudDrive, let root = Places.shared.root(place) else { return false }
+            return !same(root.url, sourceFolder)
+        case let .folder(grant, url):
+            if grant.place == .iCloudDrive || inICloudDrive(grant.url) || inICloudDrive(url) { return false }
+            return !same(url, sourceFolder)
+        }
+    }
+    static func inICloudDrive(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.contains("/Library/Mobile Documents/")
+    }
+    private static func same(_ folder: URL, _ other: URL?) -> Bool {
+        guard let other else { return false }
+        return folder.standardizedFileURL.resolvingSymlinksInPath().path == other.standardizedFileURL.resolvingSymlinksInPath().path
+    }
+}

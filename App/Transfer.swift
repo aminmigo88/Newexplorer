@@ -9,6 +9,12 @@ enum Transfer {
     static func copy(_ entry: Entry, from origin: Location, to destination: Location) async throws {
         let temporary = try Files.workspace()
         defer { try? Files.fm.removeItem(at: temporary) }
+        let prepared = try await prepare(entry, from: origin, in: temporary)
+        try await deliver(prepared, to: destination)
+    }
+
+    // Stages the item in a temporary folder before it is published anywhere.
+    static func prepare(_ entry: Entry, from origin: Location, in temporary: URL) async throws -> URL {
         let item = temporary.appendingPathComponent(try safeName(entry.name))
         let prepared: URL
         switch origin {
@@ -29,7 +35,11 @@ enum Transfer {
         case .photos:
             prepared = try await PhotosAccess.export(entry, into: temporary)
         }
+        return prepared
+    }
 
+    // Publishes a staged item under its final name in the destination.
+    static func deliver(_ prepared: URL, to destination: Location) async throws {
         switch destination {
         case .selectedFiles: throw ExplorerError("Choose a destination folder before pasting.")
         case let .folder(grant, folder):

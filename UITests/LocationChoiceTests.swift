@@ -109,6 +109,84 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
+    func testPhotoOpensInTheViewerAndSendsToTheOtherPane() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["FILES_FIXTURE"] == "1", "Requires the simulator fixture photo")
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.resetAuthorizationStatus(for: .photos)
+        app.launch()
+
+        // Pane A shows this app's own folder; pane B shows Photos. Wait for any saved folder to reopen first.
+        let paneA = app.buttons["Pane A location"], paneB = app.buttons["Pane B location"]
+        XCTAssertTrue(paneA.waitForExistence(timeout: 15) && paneB.waitForExistence(timeout: 5))
+        settle(paneA)
+        settle(paneB)
+        if (paneA.value as? String) != "App files" {
+            paneA.tap()
+            app.buttons["App files"].firstMatch.tap()
+        }
+        let appFiles = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane A location", "App files")).firstMatch
+        XCTAssertTrue(appFiles.waitForExistence(timeout: 10), app.debugDescription)
+        let photosChoice = app.buttons["open-photos-B"]
+        if !photosChoice.exists { paneB.tap() }
+        photosChoice.firstMatch.tap()
+        let alert = XCUIApplication(bundleIdentifier: "com.apple.springboard").alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), app.debugDescription)
+        let allow = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Full Access", "All Photos")).firstMatch
+        XCTAssertTrue(allow.exists, alert.debugDescription)
+        allow.tap()
+        let photosShown = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane B location", "Photos")).firstMatch
+        XCTAssertTrue(photosShown.waitForExistence(timeout: 10), app.debugDescription)
+        let photo = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "item-B-")).firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 15), app.debugDescription)
+        let name = String(photo.identifier.dropFirst("item-B-".count))
+        XCTContext.runActivity(named: "Viewing photo \(name)") { _ in }
+
+        // Tapping a photo opens the viewer; Send copies it into pane A.
+        photo.tap()
+        let send = app.buttons["viewer-send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(send.label.contains("Send to A"), send.label)
+        expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: send)
+        waitForExpectations(timeout: 30)
+        send.tap()
+        let sent = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label BEGINSWITH %@", "viewer-send", "Sent")).firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 30), app.debugDescription)
+        app.buttons["viewer-close"].tap()
+        let copied = app.buttons["item-A-" + name]
+        XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
+
+        // With Photos in pane B, a file opened in pane A offers no Send.
+        copied.tap()
+        XCTAssertTrue(app.buttons["viewer-close"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["viewer-send"].exists, app.debugDescription)
+        app.buttons["viewer-close"].tap()
+
+        // Selection starts off; the switch shows the circles and a tap then ticks the row.
+        XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(app.buttons["Select \(name)"].exists)
+        app.buttons["select-mode-A"].tap()
+        XCTAssertTrue(app.buttons["Select \(name)"].waitForExistence(timeout: 5), app.debugDescription)
+        copied.tap()
+        let copyOne = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Copy 1")).firstMatch
+        XCTAssertTrue(copyOne.waitForExistence(timeout: 5), app.debugDescription)
+        app.buttons["select-mode-A"].tap()
+        XCTAssertFalse(app.buttons["Select \(name)"].exists)
+        XCTAssertFalse(copyOne.exists)
+    }
+
+    // Waits until a pane's location stops changing, such as a saved folder reopening on launch.
+    private func settle(_ pane: XCUIElement) {
+        var last = pane.value as? String
+        var steady = 0
+        for _ in 0..<16 where steady < 4 {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+            let now = pane.value as? String
+            steady = now == last ? steady + 1 : 0
+            last = now
+        }
+    }
+
     // The simulator sometimes drops an open-in-place pick; Open can be tapped again.
     private func open(_ confirm: XCUIElement, until target: XCUIElement, in app: XCUIApplication) {
         for attempt in 1...3 {

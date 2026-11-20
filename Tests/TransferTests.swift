@@ -157,4 +157,72 @@ extension TransferTests {
         XCTAssertEqual(Places.readableName(bundleID: "com.google.ios.youtube"), "Youtube")
         XCTAssertEqual(Places.readableName(bundleID: "com.udemy.ios"), "Udemy")
     }
+
+    func testSortKeepsFoldersOnTopAndOrdersEachKey() {
+        func file(_ name: String, _ bytes: Int64?, _ day: Double?) -> Entry {
+            Entry(id: name, name: name, isFolder: false, bytes: bytes, date: day.map { Date(timeIntervalSince1970: $0 * 86_400) })
+        }
+        let rows = [file("b.txt", 10, 3), Entry(id: "Zeta", name: "Zeta", isFolder: true, bytes: nil, date: Date(timeIntervalSince1970: 9 * 86_400)),
+                    file("A.pdf", 300, 1), file("c.jpg", nil, nil),
+                    Entry(id: "alpha", name: "alpha", isFolder: true, bytes: nil, date: nil), file("d.TXT", 5, 2)]
+        func names(_ key: SortKey, reversed: Bool = false) -> [String] { ListOrder(key: key, reversed: reversed).sorted(rows).map(\.name) }
+        XCTAssertEqual(names(.name), ["alpha", "Zeta", "A.pdf", "b.txt", "c.jpg", "d.TXT"])
+        XCTAssertEqual(names(.name, reversed: true), ["Zeta", "alpha", "d.TXT", "c.jpg", "b.txt", "A.pdf"])
+        XCTAssertEqual(names(.date), ["Zeta", "alpha", "b.txt", "d.TXT", "A.pdf", "c.jpg"])
+        XCTAssertEqual(names(.date, reversed: true), ["Zeta", "alpha", "A.pdf", "d.TXT", "b.txt", "c.jpg"])
+        XCTAssertEqual(names(.size), ["alpha", "Zeta", "A.pdf", "b.txt", "d.TXT", "c.jpg"])
+        XCTAssertEqual(names(.size, reversed: true), ["alpha", "Zeta", "d.TXT", "b.txt", "A.pdf", "c.jpg"])
+        XCTAssertEqual(names(.kind), ["alpha", "Zeta", "c.jpg", "A.pdf", "b.txt", "d.TXT"])
+        XCTAssertEqual(names(.kind, reversed: true), ["alpha", "Zeta", "b.txt", "d.TXT", "A.pdf", "c.jpg"])
+        XCTAssertEqual(ListOrder(stored: "size.reversed", fallback: ListOrder(key: .name)), ListOrder(key: .size, reversed: true))
+        XCTAssertEqual(ListOrder(stored: nil, fallback: ListOrder(key: .date)), ListOrder(key: .date))
+        XCTAssertEqual(ListOrder(stored: "bogus", fallback: ListOrder(key: .name)), ListOrder(key: .name))
+        XCTAssertEqual(ListOrder(key: .kind, reversed: true).stored, "kind.reversed")
+    }
+
+    @MainActor func testEachPaneRemembersItsSortAndPhotosKeepTheirOwn() {
+        let keys = ["savedFolder.SortTest.sort", "savedFolder.SortTest.photoSort"]
+        defer { keys.forEach { UserDefaults.standard.removeObject(forKey: $0) } }
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        let pane = Pane(label: "SortTest")
+        XCTAssertEqual(pane.sortOrder, ListOrder(key: .name))
+        XCTAssertEqual(pane.photoSort, ListOrder(key: .date))
+        pane.sort(by: .size)
+        XCTAssertEqual(pane.sortOrder, ListOrder(key: .size))
+        pane.sort(by: .size)
+        XCTAssertEqual(pane.sortOrder, ListOrder(key: .size, reversed: true))
+        pane.sort(by: .kind)
+        XCTAssertEqual(pane.sortOrder, ListOrder(key: .kind))
+        let reopened = Pane(label: "SortTest")
+        XCTAssertEqual(reopened.sortOrder, ListOrder(key: .kind))
+        XCTAssertEqual(reopened.photoSort, ListOrder(key: .date))
+        XCTAssertFalse(reopened.selecting)
+        reopened.marked = ["x"]
+        reopened.setSelecting(true)
+        reopened.setSelecting(false)
+        XCTAssertTrue(reopened.marked.isEmpty)
+    }
+
+    @MainActor func testSendSkipsPhotosICloudDriveAndTheSameFolder() throws {
+        let base = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: base) }
+        let other = base.appendingPathComponent("Other")
+        try Files.fm.createDirectory(at: other, withIntermediateDirectories: false)
+        XCTAssertTrue(SendRule.allows(.local(base), sourceFolder: nil))
+        XCTAssertTrue(SendRule.allows(.local(base), sourceFolder: other))
+        XCTAssertFalse(SendRule.allows(.local(base), sourceFolder: base))
+        XCTAssertFalse(SendRule.allows(.photos, sourceFolder: nil))
+        XCTAssertFalse(SendRule.allows(.selectedFiles([]), sourceFolder: nil))
+        XCTAssertFalse(SendRule.allows(.place(.iCloudDrive), sourceFolder: nil))
+        let cloud = URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs/Docs")
+        XCTAssertFalse(SendRule.allows(.local(cloud), sourceFolder: nil))
+        XCTAssertFalse(SendRule.allows(.folder(FolderGrant(base, place: .iCloudDrive, isPlaceRoot: false), other), sourceFolder: nil))
+    }
+
+    func testPhotoExportKeepsItsNameWithTheEditedType() {
+        XCTAssertEqual(PhotosAccess.exportName(original: "IMG_1234.HEIC", render: nil), "IMG_1234.HEIC")
+        XCTAssertEqual(PhotosAccess.exportName(original: "IMG_1234.HEIC", render: "FullSizeRender.jpg"), "IMG_1234.JPG")
+        XCTAssertEqual(PhotosAccess.exportName(original: "IMG_1234.HEIC", render: "FullSizeRender.heic"), "IMG_1234.HEIC")
+        XCTAssertEqual(PhotosAccess.exportName(original: "clip.mp4", render: "FullSizeRender.mov"), "clip.mov")
+    }
 }

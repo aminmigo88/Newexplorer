@@ -17,11 +17,38 @@ final class Pane: ObservableObject {
     @Published private(set) var savedFolderName: String?
     @Published var bookmarkWarning: String?
     @Published var info: String?
+    @Published var selecting = false
+    // Photos keep their own order, newest first unless changed.
+    @Published private(set) var fileSort: ListOrder
+    @Published private(set) var photoSort: ListOrder
     private var placeKey: String { savedFolderKey + ".place" }
     init(label: String) {
         location = .appFiles
         savedFolderKey = "savedFolder." + label
-        savedFolderName = UserDefaults.standard.string(forKey: savedFolderKey + ".name")
+        let defaults = UserDefaults.standard
+        savedFolderName = defaults.string(forKey: savedFolderKey + ".name")
+        fileSort = ListOrder(stored: defaults.string(forKey: savedFolderKey + ".sort"), fallback: ListOrder(key: .name))
+        photoSort = ListOrder(stored: defaults.string(forKey: savedFolderKey + ".photoSort"), fallback: ListOrder(key: .date))
+    }
+    var isPhotos: Bool { if case .photos = location { return true }; return false }
+    var sortOrder: ListOrder { isPhotos ? photoSort : fileSort }
+    // iOS gives no sizes for photos, so the Photos list offers the other keys.
+    var sortKeys: [SortKey] { isPhotos ? [.name, .date, .kind] : SortKey.allCases }
+    // Choosing the current key again reverses the order.
+    func sort(by key: SortKey) {
+        let current = sortOrder
+        let next = ListOrder(key: key, reversed: key == current.key ? !current.reversed : false)
+        if isPhotos {
+            photoSort = next
+            UserDefaults.standard.set(next.stored, forKey: savedFolderKey + ".photoSort")
+        } else {
+            fileSort = next
+            UserDefaults.standard.set(next.stored, forKey: savedFolderKey + ".sort")
+        }
+    }
+    func setSelecting(_ on: Bool) {
+        selecting = on
+        if !on { marked.removeAll() }
     }
     func start() async {
         let defaults = UserDefaults.standard
@@ -190,7 +217,7 @@ struct ExplorerView: View {
     }
 
     private func pane(_ model: Pane, label: String) -> some View {
-        PaneView(pane: model, label: label, canPaste: shelf != nil,
+        PaneView(pane: model, other: model === first ? second : first, label: label, canPaste: shelf != nil,
                  pick: { picker = FilesPickerRequest(mode: $0, pane: model) },
                  copy: {
                      shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) })
@@ -273,6 +300,7 @@ struct PaneView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var pane: Pane
     @ObservedObject var places = Places.shared
+    let other: Pane
     let label: String
     let canPaste: Bool
     let pick: (FilesPickerMode) -> Void
@@ -280,14 +308,13 @@ struct PaneView: View {
     let archive: (Entry, Bool) -> Void
     let action: (FileAction) -> Void
     @State private var connecting = false
-    @State private var preview: URL?
+    @State private var viewing: ViewerRequest?
     @State private var showHidden = false
     @State private var query = ""
     @State private var newName = ""
     @State private var renaming: Entry?
     @State private var naming = false
     @State private var deleting = false
-    @State private var dateSort = false
     @State private var listNaming: Entry?
     @State private var listName = ""
     @State private var downloading: String?
@@ -350,8 +377,7 @@ struct PaneView: View {
         let filtered = pane.rows.filter {
             (showHidden || !$0.name.hasPrefix(".")) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query))
         }
-        if dateSort { return filtered.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) } }
-        return filtered
+        return pane.sortOrder.sorted(filtered)
     }
 
     var body: some View {
@@ -372,6 +398,10 @@ struct PaneView: View {
                     Image(systemName: "chevron.down").font(.caption2)
                 }.accessibilityLabel("Pane \(label) location").accessibilityValue(pane.location.title)
                 Spacer()
+                Button { pane.setSelecting(!pane.selecting) } label: {
+                    Image(systemName: pane.selecting ? "checkmark.circle.fill" : "checkmark.circle")
+                }.accessibilityLabel(pane.selecting ? "Stop selecting in pane \(label)" : "Select items in pane \(label)")
+                .accessibilityIdentifier("select-mode-" + label)
                 Button {
                     if let parent = pane.location.parent { open(parent) }
                 } label: { Image(systemName: "arrow.up") }.disabled(pane.location.parent == nil).accessibilityLabel("Parent folder")
@@ -379,8 +409,16 @@ struct PaneView: View {
                     Button("Refresh", systemImage: "arrow.clockwise") { Task { await pane.refresh() } }
                     Toggle("Show hidden files", isOn: $showHidden)
                         .onChange(of: showHidden) { _, value in if !value { pane.marked.formIntersection(visible.map(\.id)) } }
-                    Toggle("Newest first", isOn: $dateSort)
-                    Button("Select visible items") { pane.marked = Set(visible.map(\.id)) }
+                    Menu {
+                        ForEach(pane.sortKeys, id: \.self) { key in
+                            let order = pane.sortOrder
+                            Button { pane.sort(by: key) } label: {
+                                if key == order.key { Label(key.title + " · " + key.direction(reversed: order.reversed), systemImage: "checkmark") }
+                                else { Text(key.title) }
+                            }.accessibilityIdentifier("sort-\(key.rawValue)-" + label)
+                        }
+                    } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
+                    Button("Select visible items") { pane.selecting = true; pane.marked = Set(visible.map(\.id)) }
                     Button("Clear selection") { pane.marked.removeAll() }
                     if !photoLocation && !pane.location.isFileSelection {
                         Button("New folder", systemImage: "folder.badge.plus") {
@@ -424,17 +462,13 @@ struct PaneView: View {
                     if visible.isEmpty { emptyRows }
                     ForEach(visible) { row in
                         HStack {
-                            Button { toggle(row.id) } label: {
-                                Image(systemName: pane.marked.contains(row.id) ? "checkmark.circle.fill" : "circle")
-                            }.accessibilityLabel("Select \(row.name)").buttonStyle(.borderless)
+                            if pane.selecting {
+                                Button { toggle(row.id) } label: {
+                                    Image(systemName: pane.marked.contains(row.id) ? "checkmark.circle.fill" : "circle")
+                                }.accessibilityLabel("Select \(row.name)").buttonStyle(.borderless)
+                            }
                             Button {
-                                if row.isFolder {
-                                    if let place = currentPlace {
-                                        if let next = places.location(for: row, in: place) { open(next) }
-                                    } else { open(pane.location.subdirectory(row.name)) }
-                                } else if let url = pane.location.fileURL(for: row) {
-                                    if row.inCloud { download(row, then: url) } else { preview = url }
-                                } else { toggle(row.id) }
+                                if pane.selecting { toggle(row.id) } else { activate(row) }
                             } label: {
                                 HStack {
                                     if row.isPhoto { PhotoThumbnail(id: row.id) }
@@ -505,7 +539,9 @@ struct PaneView: View {
                   pane.message != nil || pane.rows.isEmpty else { return }
             Task { await pane.refresh() }
         }
-        .quickLookPreview($preview)
+        .fullScreenCover(item: $viewing) { request in
+            ViewerView(request: request, other: other, otherLabel: label == "A" ? "B" : "A")
+        }
         .alert(renaming == nil ? "New folder" : "Rename", isPresented: $naming) {
             TextField("Name", text: $newName)
             Button("Cancel", role: .cancel) { }
@@ -524,6 +560,9 @@ struct PaneView: View {
         .onChange(of: places.revision) { _, _ in
             if currentPlace != nil { Task { await pane.refresh() } }
         }
+        .onChange(of: deleting) { _, shown in
+            if !shown && !pane.selecting { pane.marked.removeAll() }
+        }
         .confirmationDialog("Delete \(pane.marked.count) selected items?", isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { action(.delete(pane.rows.filter { pane.marked.contains($0.id) })) }
         } message: {
@@ -533,6 +572,21 @@ struct PaneView: View {
     }
     private func toggle(_ id: String) {
         if !pane.marked.insert(id).inserted { pane.marked.remove(id) }
+    }
+    private func activate(_ row: Entry) {
+        if row.isFolder {
+            if let place = currentPlace {
+                if let next = places.location(for: row, in: place) { open(next) }
+            } else { open(pane.location.subdirectory(row.name)) }
+        } else if photoLocation {
+            viewing = ViewerRequest(entry: row, source: pane.location, file: nil)
+        } else if let url = pane.location.fileURL(for: row) {
+            if row.inCloud { download(row, then: url) } else { viewing = ViewerRequest(entry: row, source: pane.location, file: url) }
+        } else {
+            // Files that can't be previewed here, such as on a Windows share, are selected instead.
+            pane.selecting = true
+            toggle(row.id)
+        }
     }
 
     @ViewBuilder private func placeHeader(_ place: Place) -> some View {
@@ -551,6 +605,7 @@ struct PaneView: View {
     // Opening an iCloud file that is not downloaded waits for the download first.
     private func download(_ row: Entry, then url: URL) {
         downloading = row.id
+        let source = pane.location
         Task {
             defer { downloading = nil }
             do {
@@ -558,7 +613,7 @@ struct PaneView: View {
                     try? Files.fm.startDownloadingUbiquitousItem(at: url)
                     try Files.read(url) { _ in }
                 }.value
-                preview = url
+                viewing = ViewerRequest(entry: row, source: source, file: url)
                 await pane.refresh()
             } catch {
                 pane.info = "Couldn’t download \(row.name). \(error.localizedDescription)"
