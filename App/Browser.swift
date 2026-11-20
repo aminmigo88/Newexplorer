@@ -292,6 +292,11 @@ struct PaneView: View {
         } else if photoLocation {
             Text("No photos or videos are available to Newexplorer.").foregroundStyle(.secondary)
             if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited { settingsButton }
+        } else if local {
+            Text("No files were returned for this folder. Files may show additional locations.").foregroundStyle(.secondary)
+            Button("Browse Files locations", systemImage: "externaldrive") { query = ""; pick(.files) }
+                .accessibilityIdentifier("browse-empty-" + label)
+            Button("Open another folder", systemImage: "folder") { query = ""; pick(.folder) }
         } else {
             Text("This folder is empty.").foregroundStyle(.secondary)
         }
