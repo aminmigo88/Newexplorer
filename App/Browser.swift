@@ -90,6 +90,7 @@ struct NewexplorerApp: App {
 struct ExplorerView: View {
     @StateObject private var first = Pane(label: "A")
     @StateObject private var second = Pane(label: "B")
+    @State private var picker: FilesPickerRequest?
     @State private var shelf: Shelf?
     @State private var transferStatus: String?
     @State private var notice: String?
@@ -134,6 +135,20 @@ struct ExplorerView: View {
         }
         .tint(.teal)
         .task { async let a: Void = first.start(); async let b: Void = second.start(); _ = await (a, b) }
+        .sheet(item: $picker) { request in
+            FilesPicker(mode: request.mode) { urls in
+                picker = nil
+                guard let url = urls.first else { return }
+                if request.mode == .folder {
+                    let grant = FolderGrant(url)
+                    Task { await request.pane.useFolder(grant, saveBookmark: true) }
+                } else {
+                    var seen = Set<URL>()
+                    let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
+                    Task { await request.pane.open(.selectedFiles(grants)) }
+                }
+            }
+        }
         .alert("Newexplorer", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
@@ -142,24 +157,11 @@ struct ExplorerView: View {
 
     private func pane(_ model: Pane, label: String) -> some View {
         PaneView(pane: model, label: label, canPaste: shelf != nil,
-                 pick: { choose($0, for: model) },
+                 pick: { picker = FilesPickerRequest(mode: $0, pane: model) },
                  copy: {
                      shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) })
                      transferStatus = nil
                  }, paste: { transfer(into: model) }, scan: { scan(model) }, archive: { archive($0, extract: $1, pane: model) }, action: { edit($0, pane: model) })
-    }
-    private func choose(_ mode: FilesPickerMode, for pane: Pane) {
-        FilesPicker.present(mode) { urls in
-            guard let url = urls.first else { return }
-            if mode == .folder {
-                let grant = FolderGrant(url)
-                Task { await pane.useFolder(grant, saveBookmark: true) }
-            } else {
-                var seen = Set<URL>()
-                let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
-                Task { await pane.open(.selectedFiles(grants)) }
-            }
-        }
     }
     private func edit(_ action: FileAction, pane: Pane) {
         guard !working else { return }
