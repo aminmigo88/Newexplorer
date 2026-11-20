@@ -5,7 +5,7 @@ permissions:
 jobs:
   tests:
     runs-on: macos-15
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
       - name: Pick an installed iPhone simulator
@@ -18,15 +18,14 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO
           bash Scripts/prepare_picker_test.sh build/simulator/Build/Products/Debug-iphonesimulator/Newexplorer.app "$SIMULATOR_ID"
-          start=$(date '+%Y-%m-%d %H:%M:%S')
-          xcodebuild -quiet test-without-building -derivedDataPath build/simulator -project Newexplorer.xcodeproj -scheme Newexplorer \
-            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -only-testing:NewexplorerUITests/PickerDiagnosticTests \
-            -resultBundlePath Diag.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO || true
-          echo "=== RESULTS ==="
-          for t in test1ModalMulti test2ModalMultiItem test3ModalMultiCopy test4ModalSingle test5ModalMultiFullScreen test6Importer test7EmbeddedSheet; do
-            xcrun xcresulttool get test-results activities --path Diag.xcresult --test-id "PickerDiagnosticTests/$t()" | grep -o 'NXRESULT[^"]*' || echo "NXRESULT $t no-result"
+          pred='(process == "Newexplorer" AND NOT eventMessage CONTAINS "Automation type mismatch" AND NOT subsystem == "com.apple.Accessibility" AND (eventMessage CONTAINS "NXDIAG" OR messageType == 16 OR messageType == 17 OR subsystem CONTAINS "DocumentManager" OR subsystem == "com.apple.UIKit")) OR (process CONTAINS "DocumentManager" AND NOT subsystem == "com.apple.Accessibility" AND NOT subsystem == "com.apple.quicklook" AND NOT eventMessage CONTAINS "ISSymbol" AND NOT eventMessage CONTAINS[c] "thumbnail" AND NOT eventMessage CONTAINS "VTPixelTransfer" AND NOT eventMessage CONTAINS "Failed opening URL") OR (process CONTAINS "Runner" AND eventMessage CONTAINS "Tap")'
+          for t in test1ModalMulti test3ModalMultiCopy test8ModalMultiForm test9ModalMultiPage testAModalMultiOver test5ModalMultiFullScreen test7EmbeddedSheet; do
+            start=$(date '+%Y-%m-%d %H:%M:%S')
+            xcodebuild -quiet test-without-building -derivedDataPath build/simulator -project Newexplorer.xcodeproj -scheme Newexplorer \
+              -destination "platform=iOS Simulator,id=$SIMULATOR_ID" -only-testing:NewexplorerUITests/PickerDiagnosticTests/$t \
+              -resultBundlePath "Diag-$t.xcresult" -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO > /dev/null 2>&1 || true
+            echo "################ $t"
+            xcrun xcresulttool get test-results activities --path "Diag-$t.xcresult" --test-id "PickerDiagnosticTests/$t()" | grep -o 'NXRESULT[^"]*' || echo "NXRESULT $t no-result"
+            xcrun simctl spawn "$SIMULATOR_ID" log show --start "$start" --style compact --info --debug --predicate "$pred" \
+              | grep -v -E "AXRuntimeNotifications|CGColorSpace|headroom|width = |kCGImage|is mask" | cut -c1-360 | tail -260
           done
-          echo "=== APP AND PICKER LOG ==="
-          xcrun simctl spawn "$SIMULATOR_ID" log show --start "$start" --style compact --info --debug \
-            --predicate '(process == "Newexplorer" AND (eventMessage CONTAINS[c] "NXDIAG" OR eventMessage CONTAINS[c] "pick" OR eventMessage CONTAINS[c] "materializ" OR eventMessage CONTAINS[c] "delegate" OR eventMessage CONTAINS[c] "sandbox" OR eventMessage CONTAINS[c] "bookmark" OR messageType == 16 OR messageType == 17)) OR ((process CONTAINS[c] "DocumentManager" OR process == "fileproviderd") AND (eventMessage CONTAINS[c] "pick" OR eventMessage CONTAINS[c] "error" OR eventMessage CONTAINS[c] "fail" OR eventMessage CONTAINS[c] "open"))' \
-            | cut -c1-400 | tail -700

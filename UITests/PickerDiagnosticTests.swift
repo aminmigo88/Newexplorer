@@ -39,6 +39,9 @@ final class PickerDiagnosticTests: XCTestCase {
     func test5ModalMultiFullScreen() { XCTAssertTrue(run("modal-multi-fullscreen", ["NX_FULL": "1"])) }
     func test6Importer() { XCTAssertTrue(run("swiftui-fileImporter-multi", ["NX_IMPORTER": "1"])) }
     func test7EmbeddedSheet() { XCTAssertTrue(run("embedded-sheet-0.2.2", ["NX_EMBED": "1"])) }
+    func test8ModalMultiForm() { XCTAssertTrue(run("modal-multi-formSheet", ["NX_STYLE": "form"])) }
+    func test9ModalMultiPage() { XCTAssertTrue(run("modal-multi-pageSheet", ["NX_STYLE": "page"])) }
+    func testAModalMultiOver() { XCTAssertTrue(run("modal-multi-overFullScreen", ["NX_STYLE": "over"])) }
 
     private func openFixtureFolder(_ app: XCUIApplication) {
         let rootFile = app.cells.matching(NSPredicate(format: "identifier BEGINSWITH %@", "root-file")).firstMatch

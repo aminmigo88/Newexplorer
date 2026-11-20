@@ -13,6 +13,32 @@ enum PickerDiag {
     static var full: Bool { env["NX_FULL"] == "1" }
     static var importer: Bool { env["NX_IMPORTER"] == "1" }
     static var embed: Bool { env["NX_EMBED"] == "1" }
+    static var style: UIModalPresentationStyle? {
+        switch env["NX_STYLE"] {
+        case "form": return .formSheet
+        case "page": return .pageSheet
+        case "over": return .overFullScreen
+        default: return nil
+        }
+    }
+
+    // Log the presentation chain for a while, to see what Open presents.
+    @MainActor static func watch(_ tick: Int = 0) {
+        guard tick < 25 else { return }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap { $0.windows }
+        var chain: [String] = []
+        for window in windows {
+            var vc = window.rootViewController
+            var parts = ["win(key=\(window.isKeyWindow) level=\(window.windowLevel.rawValue))"]
+            while let current = vc {
+                parts.append("\(type(of: current))[style=\(current.modalPresentationStyle.rawValue) beingP=\(current.isBeingPresented) beingD=\(current.isBeingDismissed) children=\(current.children.map { "\(type(of: $0))" })]")
+                vc = current.presentedViewController
+            }
+            chain.append(parts.joined(separator: " > "))
+        }
+        NSLog("NXDIAG t=%d chain: %@", tick, chain.joined(separator: " | "))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { MainActor.assumeIsolated { watch(tick + 1) } }
+    }
 }
 
 @MainActor
@@ -26,10 +52,12 @@ final class FilesPicker: NSObject, UIDocumentPickerDelegate {
         controller = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: mode == .files && PickerDiag.copy)
         controller.allowsMultipleSelection = mode == .files && PickerDiag.multi
         if PickerDiag.full { controller.modalPresentationStyle = .fullScreen }
+        if let style = PickerDiag.style { controller.modalPresentationStyle = style }
         self.finish = finish
         super.init()
         controller.delegate = self
-        NSLog("NXDIAG modal present mode=%@ types=%@ multi=%d copy=%d", "\(mode)", "\(types)", controller.allowsMultipleSelection ? 1 : 0, PickerDiag.copy ? 1 : 0)
+        NSLog("NXDIAG modal present mode=%@ types=%@ multi=%d copy=%d style=%d", "\(mode)", "\(types)", controller.allowsMultipleSelection ? 1 : 0, PickerDiag.copy ? 1 : 0, controller.modalPresentationStyle.rawValue)
+        PickerDiag.watch()
     }
 
     static func present(_ mode: FilesPickerMode, finish: @escaping ([URL]) -> Void) {
@@ -78,7 +106,8 @@ struct LegacyFilesPicker: UIViewControllerRepresentable {
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: mode == .folder ? [.folder] : [.data, .package], asCopy: false)
         picker.allowsMultipleSelection = mode == .files
         picker.delegate = context.coordinator
-        NSLog("NXDIAG embed present mode=%@", "\(mode)")
+        NSLog("NXDIAG embed present mode=%@ style=%d", "\(mode)", picker.modalPresentationStyle.rawValue)
+        PickerDiag.watch()
         return picker
     }
 
