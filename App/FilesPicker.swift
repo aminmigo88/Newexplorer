@@ -16,7 +16,9 @@ struct FilesPicker: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(finish) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: mode == .folder ? [.folder] : [.data, .package], asCopy: false)
+        // Files come back as copies. For open-in-place picks iOS can fail to resolve the
+        // access bookmark inside the app (Cocoa 257) and then drops the selection silently.
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: mode == .folder ? [.folder] : [.data, .package], asCopy: mode == .files)
         picker.allowsMultipleSelection = mode == .files
         picker.delegate = context.coordinator
         return picker
