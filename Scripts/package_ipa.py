@@ -8,8 +8,8 @@ import hashlib
 
 app = Path("build/device/Build/Products/Release-iphoneos/Newexplorer.app")
 info = plistlib.loads((app / "Info.plist").read_bytes())
-assert info["CFBundleShortVersionString"] == "0.2.2"
-assert info["CFBundleVersion"] == "4"
+assert info["CFBundleShortVersionString"] == "0.3.0"
+assert info["CFBundleVersion"] == "5"
 assert info["UIFileSharingEnabled"] and info["LSSupportsOpeningDocumentsInPlace"]
 assert "iPhoneOS" in info["CFBundleSupportedPlatforms"]
 binary = app / info["CFBundleExecutable"]
@@ -46,7 +46,7 @@ copy = payload / app.name
 shutil.copytree(app, copy, dirs_exist_ok=True)
 for signature in list(copy.rglob("_CodeSignature")):
     shutil.rmtree(signature)
-ipa = output / "Newexplorer-v0.2.2-unsigned.ipa"
+ipa = output / "Newexplorer-v0.3.0-unsigned.ipa"
 subprocess.run(["ditto", "-c", "-k", "--keepParent", str(payload), str(ipa)], check=True)
 with zipfile.ZipFile(ipa) as archive:
     assert archive.testzip() is None

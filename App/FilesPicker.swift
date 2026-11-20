@@ -1,7 +1,7 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum FilesPickerMode { case folder, files }
+enum FilesPickerMode: Equatable { case folder, files, placeRoot(Place), placeFolders(Place) }
 
 struct FilesPickerRequest: Identifiable {
     let id = UUID()
@@ -16,10 +16,11 @@ struct FilesPicker: UIViewControllerRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(finish) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        // Files come back as copies. For open-in-place picks iOS can fail to resolve the
-        // access bookmark inside the app (Cocoa 257) and then drops the selection silently.
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: mode == .folder ? [.folder] : [.data, .package], asCopy: mode == .files)
-        picker.allowsMultipleSelection = mode == .files
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: mode == .files ? [.data, .package] : [.folder], asCopy: false)
+        switch mode {
+        case .files, .placeFolders: picker.allowsMultipleSelection = true
+        case .folder, .placeRoot: picker.allowsMultipleSelection = false
+        }
         picker.delegate = context.coordinator
         return picker
     }

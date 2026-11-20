@@ -18,9 +18,14 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO
           bash Scripts/prepare_picker_test.sh build/simulator/Build/Products/Debug-iphonesimulator/Newexplorer.app "$SIMULATOR_ID"
+          status=0
           TEST_RUNNER_FILES_FIXTURE=1 xcodebuild -quiet test-without-building -derivedDataPath build/simulator -project Newexplorer.xcodeproj -scheme Newexplorer \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+            -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO || status=$?
+          xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
+            --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' \
+            | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone' || true
+          [ "$status" -eq 0 ] || exit "$status"
           xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 7, result'
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
             --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' | grep 'Local root .* Open'
@@ -42,7 +47,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          name: Newexplorer-v0.2.2-unsigned
+          name: Newexplorer-v0.3.0-unsigned
           path: |
             output/*.ipa
             output/SHA256.txt

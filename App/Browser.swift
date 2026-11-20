@@ -16,13 +16,17 @@ final class Pane: ObservableObject {
     private var restoreKey: String { savedFolderKey + ".active" }
     @Published private(set) var savedFolderName: String?
     @Published var bookmarkWarning: String?
+    @Published var info: String?
+    private var placeKey: String { savedFolderKey + ".place" }
     init(label: String) {
         location = .appFiles
         savedFolderKey = "savedFolder." + label
         savedFolderName = UserDefaults.standard.string(forKey: savedFolderKey + ".name")
     }
     func start() async {
-        if UserDefaults.standard.bool(forKey: restoreKey) { await reopenFolder() }
+        let defaults = UserDefaults.standard
+        if let raw = defaults.string(forKey: placeKey), let place = Place(rawValue: raw) { await open(.place(place)) }
+        else if defaults.bool(forKey: restoreKey) { await reopenFolder() }
         else { await refresh() }
     }
     func reopenFolder() async {
@@ -37,6 +41,15 @@ final class Pane: ObservableObject {
         }
     }
     func useFolder(_ grant: FolderGrant, saveBookmark: Bool) async {
+        // The top of On My iPhone or iCloud Drive opens as the combined list.
+        if Place.root(of: grant.url) != nil {
+            do {
+                if let place = try Places.shared.setRoot(grant.url) { await open(.place(place)) }
+            } catch {
+                message = "Couldn’t keep access to \(grant.url.lastPathComponent). \(error.localizedDescription)"
+            }
+            return
+        }
         await open(.folder(grant, grant.url))
         guard case let .folder(current, _) = location, current === grant, message == nil else { return }
         let defaults = UserDefaults.standard
@@ -52,13 +65,31 @@ final class Pane: ObservableObject {
         }
         defaults.set(true, forKey: restoreKey)
     }
+    func addToPlace(_ place: Place, _ urls: [URL]) async {
+        let result = await Places.shared.add(urls, to: place)
+        await open(.place(place))
+        var parts: [String] = []
+        if result.added > 0 { parts.append(result.added == 1 ? "Added 1 folder." : "Added \(result.added) folders.") }
+        for root in result.roots { parts.append("\(root.title) top level saved.") }
+        if result.already > 0 { parts.append(result.already == 1 ? "1 was already in the list." : "\(result.already) were already in the list.") }
+        if result.failed > 0 { parts.append("\(result.failed) couldn’t be saved. Add again.") }
+        info = parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
     func open(_ next: Location) async {
+        let defaults = UserDefaults.standard
         if case let .folder(old, _) = location, case let .folder(new, _) = next, old === new {
             // Navigating inside a connected folder keeps its saved root.
         } else {
-            UserDefaults.standard.set(false, forKey: restoreKey)
+            defaults.set(false, forKey: restoreKey)
+        }
+        // A pane left in On My iPhone or iCloud Drive reopens it on launch.
+        switch next {
+        case let .place(place): defaults.set(place.rawValue, forKey: placeKey)
+        case let .folder(grant, _) where grant.place != nil: break
+        default: defaults.removeObject(forKey: placeKey)
         }
         bookmarkWarning = nil
+        info = nil
         location = next
         photoLimit = 150
         await refresh()
@@ -139,13 +170,16 @@ struct ExplorerView: View {
             FilesPicker(mode: request.mode) { urls in
                 picker = nil
                 guard let url = urls.first else { return }
-                if request.mode == .folder {
+                switch request.mode {
+                case .folder:
                     let grant = FolderGrant(url)
                     Task { await request.pane.useFolder(grant, saveBookmark: true) }
-                } else {
+                case .files:
                     var seen = Set<URL>()
                     let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
                     Task { await request.pane.open(.selectedFiles(grants)) }
+                case let .placeRoot(place), let .placeFolders(place):
+                    Task { await request.pane.addToPlace(place, urls) }
                 }
             }
         }
@@ -238,6 +272,7 @@ struct PaneView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var pane: Pane
+    @ObservedObject var places = Places.shared
     let label: String
     let canPaste: Bool
     let pick: (FilesPickerMode) -> Void
@@ -253,15 +288,23 @@ struct PaneView: View {
     @State private var naming = false
     @State private var deleting = false
     @State private var dateSort = false
+    @State private var listNaming: Entry?
+    @State private var listName = ""
+    @State private var downloading: String?
 
     private var local: Bool { if case .folder = pane.location { return true }; return false }
     private var photoLocation: Bool { if case .photos = pane.location { return true }; return false }
+    private var currentPlace: Place? { if case let .place(place) = pane.location { return place }; return nil }
     private func open(_ location: Location) {
         query = ""
         Task { await pane.open(location) }
     }
 
     @ViewBuilder private var locationChoices: some View {
+        ForEach(Place.allCases, id: \.self) { place in
+            Button(place.title, systemImage: place.symbol) { open(.place(place)) }
+                .accessibilityIdentifier("place-\(place.rawValue)-" + label)
+        }
         Button("Open a folder in this pane", systemImage: "folder") { query = ""; pick(.folder) }
             .accessibilityIdentifier("choose-folder-" + label)
         Button("Browse Files locations", systemImage: "externaldrive") { query = ""; pick(.files) }
@@ -292,6 +335,8 @@ struct PaneView: View {
         } else if photoLocation {
             Text("No photos or videos are available to Newexplorer.").foregroundStyle(.secondary)
             if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited { settingsButton }
+        } else if currentPlace != nil {
+            EmptyView()
         } else if local {
             Text("No files were returned for this folder. Files may show additional locations.").foregroundStyle(.secondary)
             Button("Browse Files locations", systemImage: "externaldrive") { query = ""; pick(.files) }
@@ -364,7 +409,9 @@ struct PaneView: View {
                         settingsButton
                     }
                     Button("Try again") { Task { await pane.refresh() } }
-                    if !photoLocation {
+                    if let place = currentPlace {
+                        Button("Open the top of \(place.title) again") { query = ""; pick(.placeRoot(place)) }
+                    } else if !photoLocation {
                         Button("Choose a folder again") { query = ""; pick(.folder) }
                         Button("Browse Files locations") { query = ""; pick(.files) }
                     }
@@ -372,6 +419,8 @@ struct PaneView: View {
             } else {
                 List {
                     if let warning = pane.bookmarkWarning { Text(warning).font(.footnote) }
+                    if let info = pane.info { Text(info).font(.footnote) }
+                    if let place = currentPlace { placeHeader(place) }
                     if visible.isEmpty { emptyRows }
                     ForEach(visible) { row in
                         HStack {
@@ -379,31 +428,48 @@ struct PaneView: View {
                                 Image(systemName: pane.marked.contains(row.id) ? "checkmark.circle.fill" : "circle")
                             }.accessibilityLabel("Select \(row.name)").buttonStyle(.borderless)
                             Button {
-                                if row.isFolder { open(pane.location.subdirectory(row.name)) }
-                                else if let url = pane.location.fileURL(for: row) { preview = url }
-                                else { toggle(row.id) }
+                                if row.isFolder {
+                                    if let place = currentPlace {
+                                        if let next = places.location(for: row, in: place) { open(next) }
+                                    } else { open(pane.location.subdirectory(row.name)) }
+                                } else if let url = pane.location.fileURL(for: row) {
+                                    if row.inCloud { download(row, then: url) } else { preview = url }
+                                } else { toggle(row.id) }
                             } label: {
                                 HStack {
                                     if row.isPhoto { PhotoThumbnail(id: row.id) }
                                     else { Image(systemName: row.isFolder ? "folder.fill" : "doc").foregroundStyle(row.isFolder ? Color.teal : .secondary) }
                                     VStack(alignment: .leading) {
                                         Text(row.name).foregroundStyle(.primary).lineLimit(2)
-                                        if let date = row.date, row.isPhoto { Text(date, style: .date).font(.caption).foregroundStyle(.secondary) }
+                                        if let note = row.note { Text(note).font(.caption).foregroundStyle(.secondary) }
+                                        else if let date = row.date, row.isPhoto { Text(date, style: .date).font(.caption).foregroundStyle(.secondary) }
                                         else if let size = row.bytes, !row.isFolder { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(.caption).foregroundStyle(.secondary) }
                                     }
                                     Spacer()
+                                    if downloading == row.id { ProgressView() }
+                                    else if row.inCloud { Image(systemName: "icloud.and.arrow.down").foregroundStyle(.secondary).accessibilityLabel("Not downloaded") }
                                     if row.isFolder { Image(systemName: "chevron.right").font(.caption) }
                                 }.contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityIdentifier("item-" + label + "-" + row.name)
                         }.contextMenu {
-                            if !photoLocation && !pane.location.isFileSelection {
+                            if let place = currentPlace, let role = row.placeRole, role != .rootItem {
+                                if role == .savedFolder || role == .unavailable {
+                                    Button("Rename in list", systemImage: "pencil") {
+                                        listName = row.name
+                                        listNaming = row
+                                    }
+                                    Button("Remove from list", systemImage: "minus.circle", role: .destructive) {
+                                        places.remove(row, from: place)
+                                    }
+                                }
+                            } else if !photoLocation && !pane.location.isFileSelection {
                                 Button("Rename", systemImage: "pencil") {
                                     renaming = row
                                     newName = row.name
                                     naming = true
                                 }
                             }
-                            if !pane.location.isFileSelection {
+                            if !pane.location.isFileSelection && (row.placeRole ?? .rootItem) == .rootItem {
                                 Button("Delete…", systemImage: "trash", role: .destructive) {
                                     pane.marked = [row.id]
                                     deleting = true
@@ -448,6 +514,16 @@ struct PaneView: View {
                 else { action(.createFolder(newName)) }
             }.disabled(newName.isEmpty)
         }
+        .alert("Name in list", isPresented: Binding(get: { listNaming != nil }, set: { if !$0 { listNaming = nil } })) {
+            TextField("Name", text: $listName)
+            Button("Cancel", role: .cancel) { }
+            Button("Save") {
+                if let row = listNaming, let place = currentPlace { places.rename(row, in: place, to: listName) }
+            }.disabled(listName.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .onChange(of: places.revision) { _, _ in
+            if currentPlace != nil { Task { await pane.refresh() } }
+        }
         .confirmationDialog("Delete \(pane.marked.count) selected items?", isPresented: $deleting, titleVisibility: .visible) {
             Button("Delete", role: .destructive) { action(.delete(pane.rows.filter { pane.marked.contains($0.id) })) }
         } message: {
@@ -457,5 +533,36 @@ struct PaneView: View {
     }
     private func toggle(_ id: String) {
         if !pane.marked.insert(id).inserted { pane.marked.remove(id) }
+    }
+
+    @ViewBuilder private func placeHeader(_ place: Place) -> some View {
+        if !places.hasRoot(place) {
+            Button("Open the top of \(place.title)", systemImage: place.symbol) { query = ""; pick(.placeRoot(place)) }
+                .accessibilityIdentifier("place-root-" + label)
+        }
+        Button("Add app folders", systemImage: "folder.badge.plus") { query = ""; pick(.placeFolders(place)) }
+            .accessibilityIdentifier("place-add-" + label)
+        if !places.hasFolders(place) {
+            Text("Each app’s folder is kept separate by iOS. Add the ones you want once; you can pick several together.")
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    // Opening an iCloud file that is not downloaded waits for the download first.
+    private func download(_ row: Entry, then url: URL) {
+        downloading = row.id
+        Task {
+            defer { downloading = nil }
+            do {
+                try await Task.detached {
+                    try? Files.fm.startDownloadingUbiquitousItem(at: url)
+                    try Files.read(url) { _ in }
+                }.value
+                preview = url
+                await pane.refresh()
+            } catch {
+                pane.info = "Couldn’t download \(row.name). \(error.localizedDescription)"
+            }
+        }
     }
 }
