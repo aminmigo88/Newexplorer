@@ -29,31 +29,38 @@ enum PhotosAccess {
             [.photo, .video, .pairedVideo, .alternatePhoto, .audio].contains($0.type)
         }
     }
+    // Exports one file as Photos shows it: the edited version when there is one,
+    // and only the still image of a Live Photo.
     static func export(_ entry: Entry, into folder: URL) async throws -> URL {
         guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [entry.id], options: nil).firstObject
         else { throw ExplorerError("This photo is no longer available.") }
-        let resources = originals(asset)
-        guard !resources.isEmpty else { throw ExplorerError("Photos could not supply an original.") }
-        if asset.mediaSubtypes.contains(.photoLive), !resources.contains(where: { $0.type == .pairedVideo }) {
-            throw ExplorerError("Photos could not supply the Live Photo’s motion component.")
-        }
-        let multiple = resources.count > 1
-        let output = folder.appendingPathComponent(try safeName(entry.name) + (multiple ? " - originals" : ""))
-        if multiple { try Files.fm.createDirectory(at: output, withIntermediateDirectories: false) }
-        var used = Set<String>()
-        for (index, resource) in resources.enumerated() {
-            var name = try safeName(resource.originalFilename)
-            while !used.insert(name.lowercased()).inserted { name = "\(index + 1)-" + name }
-            let url = multiple ? output.appendingPathComponent(name) : output
-            let options = PHAssetResourceRequestOptions()
-            options.isNetworkAccessAllowed = true
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
-                    if let error { continuation.resume(throwing: error) } else { continuation.resume() }
-                }
+        let resources = PHAssetResource.assetResources(for: asset)
+        let isVideo = asset.mediaType == .video
+        let originalType: PHAssetResourceType = isVideo ? .video : .photo
+        let renderType: PHAssetResourceType = isVideo ? .fullSizeVideo : .fullSizePhoto
+        let original = resources.first { $0.type == originalType } ?? originals(asset).first
+        let render = resources.first { $0.type == renderType }
+        guard let resource = render ?? original else { throw ExplorerError("Photos could not supply this item.") }
+        let name = exportName(original: original?.originalFilename ?? entry.name, render: render?.originalFilename)
+        let url = folder.appendingPathComponent(try safeName(name))
+        let options = PHAssetResourceRequestOptions()
+        options.isNetworkAccessAllowed = true
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHAssetResourceManager.default().writeData(for: resource, toFile: url, options: options) { error in
+                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
             }
         }
-        return output
+        return url
+    }
+    // An edited render keeps the original name with the render's file type: IMG_1234.HEIC → IMG_1234.JPG.
+    static func exportName(original: String, render: String?) -> String {
+        guard let render else { return original }
+        let base = (original as NSString).deletingPathExtension
+        let originalType = (original as NSString).pathExtension
+        var type = (render as NSString).pathExtension
+        guard !type.isEmpty, type.lowercased() != originalType.lowercased() else { return original }
+        if !originalType.isEmpty && originalType == originalType.uppercased() { type = type.uppercased() }
+        return base + "." + type
     }
     static func importFile(_ url: URL) async throws {
         guard let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .image) || type.conforms(to: .movie) else {
