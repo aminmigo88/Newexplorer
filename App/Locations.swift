@@ -108,7 +108,7 @@ enum Directory {
             let info = try url.resourceValues(forKeys: keys)
             guard info.isSymbolicLink != true, info.isDirectory == true || info.isRegularFile == true else { return nil }
             return Entry(id: url.lastPathComponent, name: url.lastPathComponent, isFolder: info.isDirectory == true,
-                         bytes: info.fileSize.map(Int64.init), date: info.contentModificationDate)
+                         bytes: info.fileSize.map { Int64($0) }, date: info.contentModificationDate)
         }
     }
     static func list(_ location: Location) async throws -> [Entry] {

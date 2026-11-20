@@ -18,6 +18,7 @@
 				"SUPPORTS_MACCATALYST" = "NO";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-Onone";
 				"ENABLE_TESTABILITY" = "YES";
+				"ONLY_ACTIVE_ARCH" = "YES";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf";
 			};
 		};
@@ -34,6 +35,7 @@
 				"SUPPORTS_MACCATALYST" = "NO";
 				"SWIFT_OPTIMIZATION_LEVEL" = "-O";
 				"ENABLE_TESTABILITY" = "NO";
+				"ONLY_ACTIVE_ARCH" = "NO";
 				"DEBUG_INFORMATION_FORMAT" = "dwarf-with-dsym";
 			};
 		};
@@ -77,11 +79,38 @@
 			"isa" = "PBXBuildFile";
 			"productRef" = "92A2C2E6901450754DCFDEBC";
 		};
+		"E4F85812C739CAAFF67ABB0E" = {
+			"isa" = "XCRemoteSwiftPackageReference";
+			"repositoryURL" = "https://github.com/kmworks/libarchive-swift.git";
+			"requirement" = {
+				"kind" = "exactVersion";
+				"version" = "0.1.6";
+			};
+		};
+		"FD85D21C7965ACC679B865B7" = {
+			"isa" = "XCSwiftPackageProductDependency";
+			"package" = "E4F85812C739CAAFF67ABB0E";
+			"productName" = "LibArchive";
+		};
+		"A66ED4E0A5830E8D9FDD6BF6" = {
+			"isa" = "PBXBuildFile";
+			"productRef" = "FD85D21C7965ACC679B865B7";
+		};
 		"250E33C93047B65DED42A001" = {
 			"isa" = "PBXFileReference";
 			"explicitFileType" = "wrapper.application";
 			"path" = "Newexplorer.app";
 			"sourceTree" = "BUILT_PRODUCTS_DIR";
+		};
+		"88F3D4E69B94F597B8C78422" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "sourcecode.swift";
+			"path" = "ArchiveTools.swift";
+			"sourceTree" = "<group>";
+		};
+		"8C74F6DE24091B8EF7CEE43A" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "88F3D4E69B94F597B8C78422";
 		};
 		"993749BC9D8543713E34235A" = {
 			"isa" = "PBXFileReference";
@@ -145,20 +174,20 @@
 		};
 		"FC4A695F02A8A53A129DCB9A" = {
 			"isa" = "PBXGroup";
-			"children" = ("993749BC9D8543713E34235A","BE6DBC174E6F2DB4F8036001","F32DF06925FE4E3FF4DE8EE7","E98E1B537AD96F966684D06E","F9DE5AA74410BC775EBEDAE3","A9BCA438417D62B8BB39B2EE",);
+			"children" = ("88F3D4E69B94F597B8C78422","993749BC9D8543713E34235A","BE6DBC174E6F2DB4F8036001","F32DF06925FE4E3FF4DE8EE7","E98E1B537AD96F966684D06E","F9DE5AA74410BC775EBEDAE3","A9BCA438417D62B8BB39B2EE",);
 			"sourceTree" = "<group>";
 			"path" = "App";
 		};
 		"C83DF79ED967FFBF9CAB8BC9" = {
 			"isa" = "PBXSourcesBuildPhase";
 			"buildActionMask" = 2147483647;
-			"files" = ("7CB8246D815FCD2255920A23","0A5CFBF45EFA36620BB981F0","82D12FE723B35D98C54C36A5","99E8E04252650A4E805CDAF3","CCF588A153175D2D27080935","496F937A080696367E89B4F0",);
+			"files" = ("8C74F6DE24091B8EF7CEE43A","7CB8246D815FCD2255920A23","0A5CFBF45EFA36620BB981F0","82D12FE723B35D98C54C36A5","99E8E04252650A4E805CDAF3","CCF588A153175D2D27080935","496F937A080696367E89B4F0",);
 			"runOnlyForDeploymentPostprocessing" = 0;
 		};
 		"00C8D127492E1596DCFF2053" = {
 			"isa" = "PBXFrameworksBuildPhase";
 			"buildActionMask" = 2147483647;
-			"files" = ("AFC0937162FDD6011C769F60","C70E6D176D477BD3E8F3F23B",);
+			"files" = ("AFC0937162FDD6011C769F60","C70E6D176D477BD3E8F3F23B","A66ED4E0A5830E8D9FDD6BF6",);
 			"runOnlyForDeploymentPostprocessing" = 0;
 		};
 		"67189AE95FB84B7C7A1F721A" = {
@@ -220,7 +249,7 @@
 			"buildPhases" = ("C83DF79ED967FFBF9CAB8BC9","00C8D127492E1596DCFF2053",);
 			"dependencies" = ();
 			"buildRules" = ();
-			"packageProductDependencies" = ("4B7566C17541BF97FBA14EBB","92A2C2E6901450754DCFDEBC",);
+			"packageProductDependencies" = ("4B7566C17541BF97FBA14EBB","92A2C2E6901450754DCFDEBC","FD85D21C7965ACC679B865B7",);
 			"buildConfigurationList" = "170EFFB7C56BB320E044C0BE";
 		};
 		"A9980CB1C3D8BB0FABA9CDD7" = {
@@ -339,7 +368,7 @@
 			"hasScannedForEncodings" = 0;
 			"projectDirPath" = "";
 			"projectRoot" = "";
-			"packageReferences" = ("D6C8A3C0466BCF99C54A2BBC","F2C26214B2C320C154827360",);
+			"packageReferences" = ("D6C8A3C0466BCF99C54A2BBC","F2C26214B2C320C154827360","E4F85812C739CAAFF67ABB0E",);
 			"targets" = ("A5F3649488E833578C08D451","6CD94637F3BB14E0BFB5B88E",);
 		};
 	};

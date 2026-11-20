@@ -88,7 +88,7 @@ struct ExplorerView: View {
                  copy: {
                      shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) })
                      transferStatus = nil
-                 }, paste: { transfer(into: model) }, scan: { scan(model) }, archive: { archive($0, pane: model) })
+                 }, paste: { transfer(into: model) }, scan: { scan(model) }, archive: { archive($0, extract: $1, pane: model) })
     }
     private func transfer(into pane: Pane) {
         guard let selection = shelf, !working else { return }
@@ -127,15 +127,18 @@ struct ExplorerView: View {
             } catch { notice = error.localizedDescription }
         }
     }
-    private func archive(_ row: Entry, pane: Pane) {
+    private func archive(_ row: Entry, extract: Bool, pane: Pane) {
         guard case let .folder(grant, url) = pane.location, !working else { return }
         working = true
-        transferStatus = "Compressing \(row.name)…"
+        transferStatus = (extract ? "Extracting " : "Compressing ") + "\(row.name)…"
         Task {
             defer { working = false; transferStatus = nil }
             do {
                 try await Task.detached {
-                    try withExtendedLifetime(grant) { try Files.zip(url.appendingPathComponent(row.name)) }
+                    try withExtendedLifetime(grant) {
+                        let item = url.appendingPathComponent(row.name)
+                        if extract { try ArchiveTools.extract(item) } else { try Files.zip(item) }
+                    }
                 }.value
                 await first.refresh()
                 await second.refresh()
@@ -149,7 +152,7 @@ struct PaneView: View {
     let label: String
     let canPaste: Bool
     let copy, paste, scan: () -> Void
-    let archive: (Entry) -> Void
+    let archive: (Entry, Bool) -> Void
     @State private var picking = false
     @State private var connecting = false
     @State private var preview: URL?
@@ -213,7 +216,14 @@ struct PaneView: View {
                                     if row.isFolder { Image(systemName: "chevron.right").font(.caption) }
                                 }.contentShape(Rectangle())
                             }.buttonStyle(.plain)
-                        }.contextMenu { if local { Button("Create ZIP", systemImage: "archivebox") { archive(row) } } }
+                        }.contextMenu {
+                            if local {
+                                if !row.isFolder && ["zip", "rar"].contains((row.name as NSString).pathExtension.lowercased()) {
+                                    Button("Extract here", systemImage: "folder.badge.plus") { archive(row, true) }
+                                }
+                                Button("Create ZIP", systemImage: "archivebox") { archive(row, false) }
+                            }
+                        }
                     }
                     if case .photos = pane.location, pane.rows.count >= pane.photoLimit {
                         Button("Show more photos") { pane.photoLimit += 150; Task { await pane.refresh() } }

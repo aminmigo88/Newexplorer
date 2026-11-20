@@ -35,3 +35,23 @@ final class TransferTests: XCTestCase {
         XCTAssertEqual(result.emptyFolders, ["empty"])
     }
 }
+
+extension TransferTests {
+    func testArchiveRoundTrips() throws {
+        let root = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: root) }
+        let file = root.appendingPathComponent("field notes.txt")
+        let body = Data("field notes".utf8)
+        try body.write(to: file)
+        try Files.zip(file)
+        try ArchiveTools.extract(root.appendingPathComponent("field notes.txt.zip"))
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("field notes.txt.zip - extracted/field notes.txt")), body)
+
+        // libarchive's test_read_format_rar5_stored fixture, also shipped by LibArchive Swift.
+        let sample = "UmFyIRoHAQAzkrXlCgEFBgAFAQGAgAA4MAZjLAIDC50ABJ0ApIMCtEOglYAAAQ5oZWxsb3dvcmxkLnR4dAoDE34Oq1tW6Q4aaGVsbG8gbGliYXJjaGl2ZSB0ZXN0IHN1aXRlIQodd1ZRAwUEAA=="
+        let rar = root.appendingPathComponent("sample.rar")
+        try XCTUnwrap(Data(base64Encoded: sample)).write(to: rar)
+        try ArchiveTools.extract(rar)
+        XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("sample.rar - extracted/helloworld.txt"), encoding: .utf8), "hello libarchive test suite!\n")
+    }
+}
