@@ -60,9 +60,17 @@ enum Location {
     case photos
 
     static func local(_ url: URL) -> Location { .folder(FolderGrant(url), url) }
+    static var appFiles: Location {
+        .local(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0])
+    }
+    var isAppFiles: Bool {
+        guard case let .folder(_, url) = self else { return false }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return url.standardizedFileURL.path == documents.standardizedFileURL.path
+    }
     var title: String {
         switch self {
-        case let .folder(_, url): return url == FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] ? "My files" : url.lastPathComponent
+        case let .folder(_, url): return isAppFiles ? "App files" : url.lastPathComponent
         case let .share(server, path): return path == "/" ? server.name : (path as NSString).lastPathComponent
         case .photos: return "Photos"
         }

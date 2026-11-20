@@ -12,6 +12,9 @@
       <TestableReference skipped="NO">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="6CD94637F3BB14E0BFB5B88E" BuildableName="NewexplorerTests.xctest" BlueprintName="NewexplorerTests" ReferencedContainer="container:Newexplorer.xcodeproj" />
       </TestableReference>
+      <TestableReference skipped="NO">
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="0513EF8769BD5924B06D2C66" BuildableName="NewexplorerUITests.xctest" BlueprintName="NewexplorerUITests" ReferencedContainer="container:Newexplorer.xcodeproj" />
+      </TestableReference>
     </Testables>
   </TestAction>
   <LaunchAction buildConfiguration="Debug" launchStyle="0" useCustomWorkingDirectory="NO">

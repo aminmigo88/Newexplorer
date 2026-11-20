@@ -29,7 +29,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          name: Newexplorer-v0.2.0-unsigned
+          name: Newexplorer-v0.2.1-unsigned
           path: |
             output/*.ipa
             output/SHA256.txt

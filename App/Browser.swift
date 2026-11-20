@@ -41,9 +41,8 @@ struct NewexplorerApp: App {
 }
 
 struct ExplorerView: View {
-    private static var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
-    @StateObject private var first = Pane(.local(ExplorerView.documents))
-    @StateObject private var second = Pane(.local(ExplorerView.documents))
+    @StateObject private var first = Pane(.appFiles)
+    @StateObject private var second = Pane(.appFiles)
     @State private var shelf: Shelf?
     @State private var transferStatus: String?
     @State private var notice: String?
@@ -172,6 +171,8 @@ struct ExplorerView: View {
 }
 
 struct PaneView: View {
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var pane: Pane
     let label: String
     let canPaste: Bool
@@ -191,6 +192,46 @@ struct PaneView: View {
 
     private var local: Bool { if case .folder = pane.location { return true }; return false }
     private var photoLocation: Bool { if case .photos = pane.location { return true }; return false }
+    private func open(_ location: Location) {
+        query = ""
+        Task { await pane.open(location) }
+    }
+
+    @ViewBuilder private var locationChoices: some View {
+        Button("Choose a folder", systemImage: "folder") { picking = true }
+            .accessibilityIdentifier("choose-folder-" + label)
+        Button("Open Photos", systemImage: "photo.on.rectangle") { open(.photos) }
+            .accessibilityIdentifier("open-photos-" + label)
+        Button("Connect to Windows", systemImage: "network") { connecting = true }
+            .accessibilityIdentifier("connect-windows-" + label)
+    }
+
+    private var settingsButton: some View {
+        Button("Open Settings") {
+            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+        }
+    }
+
+    @ViewBuilder private var emptyRows: some View {
+        if !query.isEmpty {
+            Text("No matches for “\(query)”.").foregroundStyle(.secondary)
+            Button("Clear search") { query = "" }
+        } else if pane.location.isAppFiles {
+            Text("This folder holds files saved in Newexplorer. Choose what to browse in pane \(label).")
+                .font(.subheadline).foregroundStyle(.secondary)
+            locationChoices
+            if !pane.rows.isEmpty {
+                Button("Show hidden files") { showHidden = true }
+            }
+        } else if !pane.rows.isEmpty {
+            Button("Show hidden files") { showHidden = true }
+        } else if photoLocation {
+            Text("No photos or videos are available to Newexplorer.").foregroundStyle(.secondary)
+            if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited { settingsButton }
+        } else {
+            Text("This folder is empty.").foregroundStyle(.secondary)
+        }
+    }
     private var visible: [Entry] {
         let filtered = pane.rows.filter {
             (showHidden || !$0.name.hasPrefix(".")) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query))
@@ -204,19 +245,15 @@ struct PaneView: View {
             HStack {
                 Text(label).bold().foregroundStyle(.teal).accessibilityLabel("Pane \(label)")
                 Menu {
-                    Button("My files", systemImage: "iphone") {
-                        Task { await pane.open(.local(Files.fm.urls(for: .documentDirectory, in: .userDomainMask)[0])) }
-                    }
-                    Button("Choose folder…", systemImage: "folder") { picking = true }
-                    Button("Photos", systemImage: "photo") { Task { await pane.open(.photos) } }
-                    Button("Windows share…", systemImage: "network") { connecting = true }
+                    Button("App files", systemImage: "iphone") { open(.appFiles) }
+                    locationChoices
                 } label: {
                     Label(pane.location.title, systemImage: pane.location.symbol).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2)
                 }.accessibilityLabel("Pane \(label) location")
                 Spacer()
                 Button {
-                    if let parent = pane.location.parent { Task { await pane.open(parent) } }
+                    if let parent = pane.location.parent { open(parent) }
                 } label: { Image(systemName: "arrow.up") }.disabled(pane.location.parent == nil).accessibilityLabel("Parent folder")
                 Menu {
                     Button("Refresh", systemImage: "arrow.clockwise") { Task { await pane.refresh() } }
@@ -246,17 +283,23 @@ struct PaneView: View {
             }.font(.subheadline).padding(.horizontal, 12).padding(.vertical, 6)
             if pane.busy { Spacer(); ProgressView(); Spacer() }
             else if let message = pane.message {
-                ScrollView { Text(message).font(.callout).padding() }.frame(maxWidth: .infinity)
+                List {
+                    Text(message).font(.callout)
+                    if photoLocation && PHPhotoLibrary.authorizationStatus(for: .readWrite) == .denied {
+                        settingsButton
+                    }
+                    Button("Try again") { Task { await pane.refresh() } }
+                }.listStyle(.plain)
             } else {
                 List {
-                    if visible.isEmpty { Text("No items to show").foregroundStyle(.secondary) }
+                    if visible.isEmpty { emptyRows }
                     ForEach(visible) { row in
                         HStack {
                             Button { toggle(row.id) } label: {
                                 Image(systemName: pane.marked.contains(row.id) ? "checkmark.circle.fill" : "circle")
                             }.accessibilityLabel("Select \(row.name)").buttonStyle(.borderless)
                             Button {
-                                if row.isFolder { Task { await pane.open(pane.location.subdirectory(row.name)) } }
+                                if row.isFolder { open(pane.location.subdirectory(row.name)) }
                                 else if case let .folder(_, url) = pane.location { preview = url.appendingPathComponent(row.name) }
                                 else { toggle(row.id) }
                             } label: {
@@ -309,6 +352,11 @@ struct PaneView: View {
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
         .padding(.horizontal, 6)
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active, photoLocation, !pane.busy,
+                  pane.message != nil || pane.rows.isEmpty else { return }
+            Task { await pane.refresh() }
+        }
         .quickLookPreview($preview)
         .alert(renaming == nil ? "New folder" : "Rename", isPresented: $naming) {
             TextField("Name", text: $newName)
@@ -325,11 +373,11 @@ struct PaneView: View {
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
             switch result {
-            case let .success(url): let grant = FolderGrant(url); Task { await pane.open(.folder(grant, url)) }
+            case let .success(url): open(.folder(FolderGrant(url), url))
             case let .failure(error): if (error as NSError).code != NSUserCancelledError { pane.message = error.localizedDescription }
             }
         }
-        .sheet(isPresented: $connecting) { ConnectionView { server in Task { await pane.open(.share(server, "/")) } } }
+        .sheet(isPresented: $connecting) { ConnectionView { server in open(.share(server, "/")) } }
     }
     private func toggle(_ id: String) {
         if !pane.marked.insert(id).inserted { pane.marked.remove(id) }
