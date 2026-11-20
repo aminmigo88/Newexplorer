@@ -125,10 +125,22 @@ final class LocationChoiceTests: XCTestCase {
         } else {
             let browse = app.buttons["Browse"].firstMatch
             if browse.exists { browse.tap() }
-            let device = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "On My iPhone", "On My iPhone,")).firstMatch
-            if device.waitForExistence(timeout: 5) { device.tap() }
+            // The app's own "On My iPhone" button sits behind the picker, so tap the visible match.
+            let device = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "On My iPhone", "On My iPhone,"))
+            tapVisible(device)
         }
         XCTAssertTrue(fixture.waitForExistence(timeout: 8), app.debugDescription)
+    }
+
+    private func tapVisible(_ query: XCUIElementQuery, timeout: TimeInterval = 5) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let element = query.allElementsBoundByIndex.first(where: { $0.exists && $0.isHittable }) {
+                element.tap()
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        } while Date() < deadline
     }
 
     private func enterFixture(in app: XCUIApplication) {
