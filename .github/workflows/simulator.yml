@@ -17,16 +17,12 @@ jobs:
           xcodebuild -quiet test -project Newexplorer.xcodeproj -scheme Newexplorer \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
-      - name: Capture simulator preview
-        run: |
-          mkdir -p output
-          xcrun simctl launch "$SIMULATOR_ID" com.aminmigo88.newexplorer
-          sleep 3
-          xcrun simctl io "$SIMULATOR_ID" screenshot output/simulator-preview.png
       - name: Build unsigned iPhone app
         if: github.ref == 'refs/heads/main'
         run: |
-          xcodebuild -quiet build -project Newexplorer.xcodeproj -scheme Newexplorer             -configuration Release -destination 'generic/platform=iOS'             -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO
+          xcodebuild -quiet build -project Newexplorer.xcodeproj -scheme Newexplorer \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO
       - name: Package and validate IPA
         if: github.ref == 'refs/heads/main'
         run: python3 Scripts/package_ipa.py
@@ -37,5 +33,4 @@ jobs:
           path: |
             output/*.ipa
             output/SHA256.txt
-            output/simulator-preview.png
           if-no-files-found: error
