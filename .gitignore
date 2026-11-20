@@ -6,3 +6,5 @@ xcuserdata/
 *.ipa
 *.mobileprovision
 *.p12
+build/
+output/

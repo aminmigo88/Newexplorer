@@ -59,6 +59,16 @@ struct ExplorerView: View {
                     Text("Newexplorer").font(.title2.bold())
                     Spacer()
                     if working { ProgressView() }
+                    Menu {
+                        Button("Clear temporary transfer files") {
+                            working = true
+                            Task {
+                                defer { working = false }
+                                do { try await FileActions.clearTemporaryFiles(); notice = "Temporary transfer files cleared." }
+                                catch { notice = error.localizedDescription }
+                            }
+                        }
+                    } label: { Image(systemName: "gearshape") }.disabled(working)
                 }.padding(.horizontal, 16)
                 let layout = geo.size.width > geo.size.height ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
                 layout {
@@ -88,7 +98,21 @@ struct ExplorerView: View {
                  copy: {
                      shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) })
                      transferStatus = nil
-                 }, paste: { transfer(into: model) }, scan: { scan(model) }, archive: { archive($0, extract: $1, pane: model) })
+                 }, paste: { transfer(into: model) }, scan: { scan(model) }, archive: { archive($0, extract: $1, pane: model) }, action: { edit($0, pane: model) })
+    }
+    private func edit(_ action: FileAction, pane: Pane) {
+        guard !working else { return }
+        working = true
+        shelf = nil
+        transferStatus = nil
+        let location = pane.location
+        Task {
+            defer { working = false }
+            do { try await FileActions.perform(action, at: location) }
+            catch { notice = error.localizedDescription }
+            await first.refresh()
+            await second.refresh()
+        }
     }
     private func transfer(into pane: Pane) {
         guard let selection = shelf, !working else { return }
@@ -153,13 +177,27 @@ struct PaneView: View {
     let canPaste: Bool
     let copy, paste, scan: () -> Void
     let archive: (Entry, Bool) -> Void
+    let action: (FileAction) -> Void
     @State private var picking = false
     @State private var connecting = false
     @State private var preview: URL?
     @State private var showHidden = false
+    @State private var query = ""
+    @State private var newName = ""
+    @State private var renaming: Entry?
+    @State private var naming = false
+    @State private var deleting = false
+    @State private var dateSort = false
 
     private var local: Bool { if case .folder = pane.location { return true }; return false }
-    private var visible: [Entry] { showHidden ? pane.rows : pane.rows.filter { !$0.name.hasPrefix(".") } }
+    private var photoLocation: Bool { if case .photos = pane.location { return true }; return false }
+    private var visible: [Entry] {
+        let filtered = pane.rows.filter {
+            (showHidden || !$0.name.hasPrefix(".")) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query))
+        }
+        if dateSort { return filtered.sorted { ($0.date ?? .distantPast) > ($1.date ?? .distantPast) } }
+        return filtered
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -184,10 +222,28 @@ struct PaneView: View {
                     Button("Refresh", systemImage: "arrow.clockwise") { Task { await pane.refresh() } }
                     Toggle("Show hidden files", isOn: $showHidden)
                         .onChange(of: showHidden) { _, value in if !value { pane.marked.formIntersection(visible.map(\.id)) } }
+                    Toggle("Newest first", isOn: $dateSort)
+                    Button("Select visible items") { pane.marked = Set(visible.map(\.id)) }
+                    Button("Clear selection") { pane.marked.removeAll() }
+                    if !photoLocation {
+                        Button("New folder", systemImage: "folder.badge.plus") {
+                            renaming = nil
+                            newName = ""
+                            naming = true
+                        }
+                    }
+                    Button("Delete selected…", systemImage: "trash", role: .destructive) { deleting = true }
+                        .disabled(pane.marked.isEmpty)
                     if local { Button("Find duplicates and empty folders", systemImage: "magnifyingglass") { scan() } }
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Pane options")
             }.padding(10)
             Divider()
+            HStack {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search this location", text: $query)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") } }
+            }.font(.subheadline).padding(.horizontal, 12).padding(.vertical, 6)
             if pane.busy { Spacer(); ProgressView(); Spacer() }
             else if let message = pane.message {
                 ScrollView { Text(message).font(.callout).padding() }.frame(maxWidth: .infinity)
@@ -217,6 +273,17 @@ struct PaneView: View {
                                 }.contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }.contextMenu {
+                            if !photoLocation {
+                                Button("Rename", systemImage: "pencil") {
+                                    renaming = row
+                                    newName = row.name
+                                    naming = true
+                                }
+                            }
+                            Button("Delete…", systemImage: "trash", role: .destructive) {
+                                pane.marked = [row.id]
+                                deleting = true
+                            }
                             if local {
                                 if !row.isFolder && ["zip", "rar"].contains((row.name as NSString).pathExtension.lowercased()) {
                                     Button("Extract here", systemImage: "folder.badge.plus") { archive(row, true) }
@@ -243,6 +310,19 @@ struct PaneView: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
         .padding(.horizontal, 6)
         .quickLookPreview($preview)
+        .alert(renaming == nil ? "New folder" : "Rename", isPresented: $naming) {
+            TextField("Name", text: $newName)
+            Button("Cancel", role: .cancel) { }
+            Button("Save") {
+                if let row = renaming { action(.rename(row, newName)) }
+                else { action(.createFolder(newName)) }
+            }.disabled(newName.isEmpty)
+        }
+        .confirmationDialog("Delete \(pane.marked.count) selected items?", isPresented: $deleting, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) { action(.delete(pane.rows.filter { pane.marked.contains($0.id) })) }
+        } message: {
+            Text(photoLocation ? "Deleting from Photos also deletes the items from iCloud Photos and synced devices. Photos controls recovery in Recently Deleted." : "Files and folders will be permanently removed from this location. Check your selection before continuing.")
+        }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
             switch result {
             case let .success(url): let grant = FolderGrant(url); Task { await pane.open(.folder(grant, url)) }

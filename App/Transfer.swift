@@ -48,7 +48,7 @@ enum Transfer {
         }
     }
 
-    private static func windowsName(_ name: String) throws -> String {
+    static func windowsName(_ name: String) throws -> String {
         _ = try safeName(name)
         let reserved = ["CON", "PRN", "AUX", "NUL"] + (1...9).flatMap { ["COM\($0)", "LPT\($0)"] }
         guard name.rangeOfCharacter(from: CharacterSet(charactersIn: ":*?\"<>|").union(.controlCharacters)) == nil,

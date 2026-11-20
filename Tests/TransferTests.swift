@@ -55,3 +55,27 @@ extension TransferTests {
         XCTAssertEqual(try String(contentsOf: root.appendingPathComponent("sample.rar - extracted/helloworld.txt"), encoding: .utf8), "hello libarchive test suite!\n")
     }
 }
+
+extension TransferTests {
+    func testCreateRenameAndDeleteOnlySelectedFolder() async throws {
+        let root = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: root) }
+        let location = Location.local(root)
+        try Data([7]).write(to: root.appendingPathComponent("keep.bin"))
+        try await FileActions.perform(.createFolder("Drafts"), at: location)
+        let row = try XCTUnwrap(try Directory.localEntries(root).first { $0.name == "Drafts" })
+        try await FileActions.perform(.rename(row, "Finished"), at: location)
+        let renamed = try XCTUnwrap(try Directory.localEntries(root).first { $0.name == "Finished" })
+        do {
+            try await FileActions.perform(.rename(renamed, "keep.bin"), at: location)
+            XCTFail("Rename must reject an existing destination")
+        } catch is ExplorerError { }
+        do {
+            try await FileActions.perform(.createFolder("../escape"), at: location)
+            XCTFail("Names must not escape the selected folder")
+        } catch is ExplorerError { }
+        try await FileActions.perform(.delete([renamed]), at: location)
+        XCTAssertEqual(try Directory.localEntries(root).map(\.name), ["keep.bin"])
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("keep.bin")), Data([7]))
+    }
+}
