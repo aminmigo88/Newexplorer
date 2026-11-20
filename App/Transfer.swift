@@ -12,10 +12,11 @@ enum Transfer {
         let item = temporary.appendingPathComponent(try safeName(entry.name))
         let prepared: URL
         switch origin {
-        case let .folder(grant, folder):
+        case .folder, .selectedFiles:
+            guard let url = origin.fileURL(for: entry) else { throw ExplorerError("Select this file again in Files.") }
             try await Task.detached {
-                try withExtendedLifetime(grant) {
-                    try Files.read(folder.appendingPathComponent(entry.name)) { try Files.copyTree($0, to: item) }
+                try withExtendedLifetime(origin) {
+                    try Files.read(url) { try Files.copyTree($0, to: item) }
                 }
             }.value
             prepared = item
@@ -27,6 +28,7 @@ enum Transfer {
         }
 
         switch destination {
+        case .selectedFiles: throw ExplorerError("Choose a destination folder before pasting.")
         case let .folder(grant, folder):
             try await Task.detached { try withExtendedLifetime(grant) { try Files.publish(prepared, into: folder) } }.value
         case let .share(server, path):

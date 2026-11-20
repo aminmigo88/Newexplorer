@@ -12,8 +12,53 @@ final class Pane: ObservableObject {
     @Published var message: String?
     @Published var photoLimit = 150
     private var generation = UUID()
-    init(_ location: Location) { self.location = location }
+    private let savedFolderKey: String
+    private var restoreKey: String { savedFolderKey + ".active" }
+    @Published private(set) var savedFolderName: String?
+    @Published var bookmarkWarning: String?
+    init(label: String) {
+        location = .appFiles
+        savedFolderKey = "savedFolder." + label
+        savedFolderName = UserDefaults.standard.string(forKey: savedFolderKey + ".name")
+    }
+    func start() async {
+        if UserDefaults.standard.bool(forKey: restoreKey) { await reopenFolder() }
+        else { await refresh() }
+    }
+    func reopenFolder() async {
+        let defaults = UserDefaults.standard
+        do {
+            guard let data = defaults.data(forKey: savedFolderKey) else { throw ExplorerError("Select the folder in Files again.") }
+            let (grant, stale) = try FolderGrant.restore(data)
+            await useFolder(grant, saveBookmark: stale)
+        } catch {
+            defaults.set(false, forKey: restoreKey)
+            message = "Choose the saved folder again in Files. \(error.localizedDescription)"
+        }
+    }
+    func useFolder(_ grant: FolderGrant, saveBookmark: Bool) async {
+        await open(.folder(grant, grant.url))
+        guard case let .folder(current, _) = location, current === grant, message == nil else { return }
+        let defaults = UserDefaults.standard
+        if saveBookmark {
+            do {
+                defaults.set(try grant.bookmark(), forKey: savedFolderKey)
+                savedFolderName = grant.url.lastPathComponent
+                defaults.set(savedFolderName, forKey: savedFolderKey + ".name")
+            } catch {
+                bookmarkWarning = "Folder opened for this session. Files could not save a shortcut."
+                return
+            }
+        }
+        defaults.set(true, forKey: restoreKey)
+    }
     func open(_ next: Location) async {
+        if case let .folder(old, _) = location, case let .folder(new, _) = next, old === new {
+            // Navigating inside a connected folder keeps its saved root.
+        } else {
+            UserDefaults.standard.set(false, forKey: restoreKey)
+        }
+        bookmarkWarning = nil
         location = next
         photoLimit = 150
         await refresh()
@@ -31,7 +76,9 @@ final class Pane: ObservableObject {
             if case .photos = location { result = try await PhotosAccess.list(limit: photoLimit) }
             else { result = try await Directory.list(location) }
             if generation == ticket { rows = result }
-        } catch { if generation == ticket { message = error.localizedDescription } }
+        } catch {
+            if generation == ticket { message = "Couldn’t open \(location.title). \(error.localizedDescription)" }
+        }
     }
 }
 
@@ -41,8 +88,9 @@ struct NewexplorerApp: App {
 }
 
 struct ExplorerView: View {
-    @StateObject private var first = Pane(.appFiles)
-    @StateObject private var second = Pane(.appFiles)
+    @StateObject private var first = Pane(label: "A")
+    @StateObject private var second = Pane(label: "B")
+    @State private var picker: FilesPickerRequest?
     @State private var shelf: Shelf?
     @State private var transferStatus: String?
     @State private var notice: String?
@@ -59,6 +107,7 @@ struct ExplorerView: View {
                     Spacer()
                     if working { ProgressView() }
                     Menu {
+                        Text("Version " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""))
                         Button("Clear temporary transfer files") {
                             working = true
                             Task {
@@ -85,7 +134,21 @@ struct ExplorerView: View {
             }.padding(.vertical, 6)
         }
         .tint(.teal)
-        .task { await first.refresh(); await second.refresh() }
+        .task { async let a: Void = first.start(); async let b: Void = second.start(); _ = await (a, b) }
+        .sheet(item: $picker) { request in
+            FilesPicker(mode: request.mode) { urls in
+                picker = nil
+                guard let url = urls.first else { return }
+                if request.mode == .folder {
+                    let grant = FolderGrant(url)
+                    Task { await request.pane.useFolder(grant, saveBookmark: true) }
+                } else {
+                    var seen = Set<URL>()
+                    let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
+                    Task { await request.pane.open(.selectedFiles(grants)) }
+                }
+            }
+        }
         .alert("Newexplorer", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
@@ -94,6 +157,7 @@ struct ExplorerView: View {
 
     private func pane(_ model: Pane, label: String) -> some View {
         PaneView(pane: model, label: label, canPaste: shelf != nil,
+                 pick: { picker = FilesPickerRequest(mode: $0, pane: model) },
                  copy: {
                      shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) })
                      transferStatus = nil
@@ -176,10 +240,10 @@ struct PaneView: View {
     @ObservedObject var pane: Pane
     let label: String
     let canPaste: Bool
+    let pick: (FilesPickerMode) -> Void
     let copy, paste, scan: () -> Void
     let archive: (Entry, Bool) -> Void
     let action: (FileAction) -> Void
-    @State private var picking = false
     @State private var connecting = false
     @State private var preview: URL?
     @State private var showHidden = false
@@ -198,8 +262,10 @@ struct PaneView: View {
     }
 
     @ViewBuilder private var locationChoices: some View {
-        Button("Choose a folder", systemImage: "folder") { picking = true }
+        Button("Open a folder in this pane", systemImage: "folder") { query = ""; pick(.folder) }
             .accessibilityIdentifier("choose-folder-" + label)
+        Button("Browse Files locations", systemImage: "externaldrive") { query = ""; pick(.files) }
+            .accessibilityIdentifier("browse-files-" + label)
         Button("Open Photos", systemImage: "photo.on.rectangle") { open(.photos) }
             .accessibilityIdentifier("open-photos-" + label)
         Button("Connect to Windows", systemImage: "network") { connecting = true }
@@ -217,8 +283,6 @@ struct PaneView: View {
             Text("No matches for “\(query)”.").foregroundStyle(.secondary)
             Button("Clear search") { query = "" }
         } else if pane.location.isAppFiles {
-            Text("This folder holds files saved in Newexplorer. Choose what to browse in pane \(label).")
-                .font(.subheadline).foregroundStyle(.secondary)
             locationChoices
             if !pane.rows.isEmpty {
                 Button("Show hidden files") { showHidden = true }
@@ -246,11 +310,17 @@ struct PaneView: View {
                 Text(label).bold().foregroundStyle(.teal).accessibilityLabel("Pane \(label)")
                 Menu {
                     Button("App files", systemImage: "iphone") { open(.appFiles) }
+                    if let name = pane.savedFolderName {
+                        Button("Reopen \(name)", systemImage: "bookmark") {
+                            query = ""
+                            Task { await pane.reopenFolder() }
+                        }
+                    }
                     locationChoices
                 } label: {
                     Label(pane.location.title, systemImage: pane.location.symbol).lineLimit(1)
                     Image(systemName: "chevron.down").font(.caption2)
-                }.accessibilityLabel("Pane \(label) location")
+                }.accessibilityLabel("Pane \(label) location").accessibilityValue(pane.location.title)
                 Spacer()
                 Button {
                     if let parent = pane.location.parent { open(parent) }
@@ -262,7 +332,7 @@ struct PaneView: View {
                     Toggle("Newest first", isOn: $dateSort)
                     Button("Select visible items") { pane.marked = Set(visible.map(\.id)) }
                     Button("Clear selection") { pane.marked.removeAll() }
-                    if !photoLocation {
+                    if !photoLocation && !pane.location.isFileSelection {
                         Button("New folder", systemImage: "folder.badge.plus") {
                             renaming = nil
                             newName = ""
@@ -270,7 +340,7 @@ struct PaneView: View {
                         }
                     }
                     Button("Delete selected…", systemImage: "trash", role: .destructive) { deleting = true }
-                        .disabled(pane.marked.isEmpty)
+                        .disabled(pane.marked.isEmpty || pane.location.isFileSelection)
                     if local { Button("Find duplicates and empty folders", systemImage: "magnifyingglass") { scan() } }
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Pane options")
             }.padding(10)
@@ -289,9 +359,14 @@ struct PaneView: View {
                         settingsButton
                     }
                     Button("Try again") { Task { await pane.refresh() } }
+                    if !photoLocation {
+                        Button("Choose a folder again") { query = ""; pick(.folder) }
+                        Button("Browse Files locations") { query = ""; pick(.files) }
+                    }
                 }.listStyle(.plain)
             } else {
                 List {
+                    if let warning = pane.bookmarkWarning { Text(warning).font(.footnote) }
                     if visible.isEmpty { emptyRows }
                     ForEach(visible) { row in
                         HStack {
@@ -300,7 +375,7 @@ struct PaneView: View {
                             }.accessibilityLabel("Select \(row.name)").buttonStyle(.borderless)
                             Button {
                                 if row.isFolder { open(pane.location.subdirectory(row.name)) }
-                                else if case let .folder(_, url) = pane.location { preview = url.appendingPathComponent(row.name) }
+                                else if let url = pane.location.fileURL(for: row) { preview = url }
                                 else { toggle(row.id) }
                             } label: {
                                 HStack {
@@ -314,18 +389,20 @@ struct PaneView: View {
                                     Spacer()
                                     if row.isFolder { Image(systemName: "chevron.right").font(.caption) }
                                 }.contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                            }.buttonStyle(.plain).accessibilityIdentifier("item-" + label + "-" + row.name)
                         }.contextMenu {
-                            if !photoLocation {
+                            if !photoLocation && !pane.location.isFileSelection {
                                 Button("Rename", systemImage: "pencil") {
                                     renaming = row
                                     newName = row.name
                                     naming = true
                                 }
                             }
-                            Button("Delete…", systemImage: "trash", role: .destructive) {
-                                pane.marked = [row.id]
-                                deleting = true
+                            if !pane.location.isFileSelection {
+                                Button("Delete…", systemImage: "trash", role: .destructive) {
+                                    pane.marked = [row.id]
+                                    deleting = true
+                                }
                             }
                             if local {
                                 if !row.isFolder && ["zip", "rar"].contains((row.name as NSString).pathExtension.lowercased()) {
@@ -345,7 +422,7 @@ struct PaneView: View {
                 Button { copy() } label: { Label(pane.marked.isEmpty ? "Copy" : "Copy \(pane.marked.count)", systemImage: "doc.on.doc") }
                     .disabled(pane.marked.isEmpty)
                 Spacer()
-                Button { paste() } label: { Label("Paste here", systemImage: "doc.on.clipboard") }.disabled(!canPaste || pane.busy || pane.message != nil)
+                Button { paste() } label: { Label("Paste here", systemImage: "doc.on.clipboard") }.disabled(!canPaste || pane.busy || pane.message != nil || pane.location.isFileSelection)
             }.font(.subheadline.weight(.semibold)).padding(10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -370,12 +447,6 @@ struct PaneView: View {
             Button("Delete", role: .destructive) { action(.delete(pane.rows.filter { pane.marked.contains($0.id) })) }
         } message: {
             Text(photoLocation ? "Deleting from Photos also deletes the items from iCloud Photos and synced devices. Photos controls recovery in Recently Deleted." : "Files and folders will be permanently removed from this location. Check your selection before continuing.")
-        }
-        .fileImporter(isPresented: $picking, allowedContentTypes: [.folder]) { result in
-            switch result {
-            case let .success(url): open(.folder(FolderGrant(url), url))
-            case let .failure(error): if (error as NSError).code != NSUserCancelledError { pane.message = error.localizedDescription }
-            }
         }
         .sheet(isPresented: $connecting) { ConnectionView { server in open(.share(server, "/")) } }
     }

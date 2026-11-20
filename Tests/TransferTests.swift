@@ -2,6 +2,20 @@ import XCTest
 @testable import Newexplorer
 
 final class TransferTests: XCTestCase {
+    func testDirectFileSelectionCopiesTheChosenURLWhenNamesMatch() async throws {
+        let base = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: base) }
+        let folders = ["First", "Second", "Output"].map { base.appendingPathComponent($0) }
+        for url in folders { try Files.fm.createDirectory(at: url, withIntermediateDirectories: false) }
+        let files = folders.prefix(2).map { $0.appendingPathComponent("shared.txt") }
+        for (i, url) in files.enumerated() { try Data([UInt8(i)]).write(to: url) }
+        let selection = Location.selectedFiles(files.map(FolderGrant.init))
+        let entries = try await Directory.list(selection)
+        XCTAssertEqual(Set(entries.map(\.id)).count, 2)
+        let second = try XCTUnwrap(entries.first { $0.id == files[1].absoluteString })
+        try await Transfer.copy(second, from: selection, to: .local(folders[2]))
+        XCTAssertEqual(try Data(contentsOf: folders[2].appendingPathComponent("shared.txt")), Data([1]))
+    }
     func testCopyFolderAndRejectSecondPasteWithoutChangingEitherCopy() async throws {
         let sandbox = try Files.workspace()
         defer { try? FileManager.default.removeItem(at: sandbox) }

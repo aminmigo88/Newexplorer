@@ -10,6 +10,7 @@ enum FileAction {
 enum FileActions {
     static func perform(_ action: FileAction, at location: Location) async throws {
         switch location {
+        case .selectedFiles: throw ExplorerError("Open the containing folder in this pane to change its contents.")
         case let .folder(grant, folder):
             try await Task.detached {
                 try withExtendedLifetime(grant) {

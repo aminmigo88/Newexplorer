@@ -24,6 +24,15 @@ final class FolderGrant {
         scoped = url.startAccessingSecurityScopedResource()
     }
     deinit { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+    func bookmark() throws -> Data {
+        try url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+    static func restore(_ data: Data) throws -> (FolderGrant, stale: Bool) {
+        var stale = false
+        let url = try URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
+        return (FolderGrant(url), stale)
+    }
 }
 
 final class Share {
@@ -56,6 +65,7 @@ final class Share {
 
 enum Location {
     case folder(FolderGrant, URL)
+    case selectedFiles([FolderGrant])
     case share(Share, String)
     case photos
 
@@ -73,6 +83,7 @@ enum Location {
         case let .folder(_, url): return isAppFiles ? "App files" : url.lastPathComponent
         case let .share(server, path): return path == "/" ? server.name : (path as NSString).lastPathComponent
         case .photos: return "Photos"
+        case .selectedFiles: return "Selected files"
         }
     }
     var symbol: String {
@@ -80,6 +91,7 @@ enum Location {
         case .folder: return "folder"
         case .share: return "network"
         case .photos: return "photo.on.rectangle"
+        case .selectedFiles: return "doc.on.doc"
         }
     }
     var parent: Location? {
@@ -88,14 +100,25 @@ enum Location {
             return url.standardizedFileURL.path == grant.url.standardizedFileURL.path ? nil : .folder(grant, url.deletingLastPathComponent())
         case let .share(server, path):
             return path == "/" ? nil : .share(server, (path as NSString).deletingLastPathComponent)
-        case .photos: return nil
+        case .photos, .selectedFiles: return nil
         }
     }
     func subdirectory(_ name: String) -> Location {
         switch self {
         case let .folder(grant, url): return .folder(grant, url.appendingPathComponent(name))
         case let .share(server, path): return .share(server, server.child(path, name))
-        case .photos: return self
+        case .photos, .selectedFiles: return self
+        }
+    }
+    var isFileSelection: Bool {
+        if case .selectedFiles = self { return true }
+        return false
+    }
+    func fileURL(for row: Entry) -> URL? {
+        switch self {
+        case let .folder(_, url): return url.appendingPathComponent(row.name)
+        case let .selectedFiles(grants): return grants.first { $0.url.absoluteString == row.id }?.url
+        default: return nil
         }
     }
 }
@@ -112,11 +135,13 @@ struct Entry: Identifiable {
 enum Directory {
     static let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
     static func localEntries(_ url: URL) throws -> [Entry] {
-        try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(keys)).compactMap { url in
-            let info = try url.resourceValues(forKeys: keys)
-            guard info.isSymbolicLink != true, info.isDirectory == true || info.isRegularFile == true else { return nil }
-            return Entry(id: url.lastPathComponent, name: url.lastPathComponent, isFolder: info.isDirectory == true,
-                         bytes: info.fileSize.map { Int64($0) }, date: info.contentModificationDate)
+        try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: Array(keys)).compactMap { child in
+            let info = try? child.resourceValues(forKeys: keys)
+            guard info?.isSymbolicLink != true else { return nil }
+            let isFolder = info?.isDirectory ?? child.hasDirectoryPath
+            if !isFolder && info?.isRegularFile == false { return nil }
+            return Entry(id: child.lastPathComponent, name: child.lastPathComponent, isFolder: isFolder,
+                         bytes: info?.fileSize.map { Int64($0) }, date: info?.contentModificationDate)
         }
     }
     static func list(_ location: Location) async throws -> [Entry] {
@@ -127,6 +152,10 @@ enum Directory {
                 try withExtendedLifetime(grant) { try Files.read(url) { try localEntries($0) } }
             }.value
         case let .share(server, path): items = try await server.entries(path)
+        case let .selectedFiles(grants):
+            items = grants.map { grant in
+                Entry(id: grant.url.absoluteString, name: grant.url.lastPathComponent, isFolder: false, bytes: nil, date: nil)
+            }
         case .photos: return try await PhotosAccess.list()
         }
         return items.sorted {

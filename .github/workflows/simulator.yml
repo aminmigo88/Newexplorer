@@ -16,7 +16,13 @@ jobs:
         run: |
           xcodebuild -quiet test -project Newexplorer.xcodeproj -scheme Newexplorer \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
-            -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+            -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+      - name: Report simulator test failures
+        if: failure()
+        run: |
+          if [ -d SimulatorTests.xcresult ]; then
+            xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult
+          fi
       - name: Build unsigned iPhone app
         if: github.ref == 'refs/heads/main'
         run: |
@@ -29,7 +35,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          name: Newexplorer-v0.2.1-unsigned
+          name: Newexplorer-v0.2.2-unsigned
           path: |
             output/*.ipa
             output/SHA256.txt
