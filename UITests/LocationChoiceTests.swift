@@ -33,10 +33,25 @@ final class LocationChoiceTests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launch()
+        let rootPicker = app.buttons["choose-folder-A"]
+        XCTAssertTrue(rootPicker.waitForExistence(timeout: 15))
+        rootPicker.tap()
+        try showLocalRoot(in: app)
+        let confirmRoot = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "Done"])).firstMatch
+        let offered = confirmRoot.exists && confirmRoot.isEnabled
+        XCTContext.runActivity(named: offered ? "Local root offers Open" : "Local root withholds Open") { _ in
+            if offered {
+                confirmRoot.tap()
+                XCTAssertTrue(app.buttons["item-A-Folder Test Source"].waitForExistence(timeout: 10), app.debugDescription)
+            } else {
+                app.buttons["Cancel"].firstMatch.tap()
+            }
+        }
         let choose = app.buttons["choose-folder-B"]
         XCTAssertTrue(choose.waitForExistence(timeout: 15))
         choose.tap()
-        try enterFixture(in: app)
+        try showLocalRoot(in: app)
+        fileItem("Folder Test Source", in: app).tap()
         let downloads = fileItem("Downloads", in: app)
         XCTAssertTrue(downloads.waitForExistence(timeout: 8), app.debugDescription)
         downloads.tap()
@@ -46,7 +61,7 @@ final class LocationChoiceTests: XCTestCase {
         func checkFolder() {
             XCTAssertTrue(app.buttons["item-B-inside.txt"].waitForExistence(timeout: 12), app.debugDescription)
             XCTAssertEqual(app.buttons["Pane B location"].value as? String, "Downloads")
-            XCTAssertTrue(app.buttons["choose-folder-A"].exists)
+            XCTAssertTrue(app.buttons[offered ? "item-A-Folder Test Source" : "choose-folder-A"].exists)
         }
         checkFolder()
         app.terminate()
@@ -59,7 +74,7 @@ final class LocationChoiceTests: XCTestCase {
         return app.descendants(matching: .any).matching(match).firstMatch
     }
 
-    private func enterFixture(in app: XCUIApplication) throws {
+    private func showLocalRoot(in app: XCUIApplication) throws {
         let source = fileItem("Folder Test Source", in: app)
         let device = fileItem("On My iPhone", in: app)
         if !source.waitForExistence(timeout: 2) {
@@ -70,6 +85,5 @@ final class LocationChoiceTests: XCTestCase {
             if device.waitForExistence(timeout: 5) { device.tap() }
         }
         XCTAssertTrue(source.waitForExistence(timeout: 8), app.debugDescription)
-        source.tap()
     }
 }

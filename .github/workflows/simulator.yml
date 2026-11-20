@@ -22,6 +22,8 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
           xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 7, result'
+          xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
+            --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' | grep 'Local root .* Open'
       - name: Report simulator test failures
         if: failure()
         run: |
