@@ -1,0 +1,22 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Scheme LastUpgradeVersion="1600" version="1.7">
+  <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES">
+    <BuildActionEntries>
+      <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A5F3649488E833578C08D451" BuildableName="Newexplorer.app" BlueprintName="Newexplorer" ReferencedContainer="container:Newexplorer.xcodeproj" />
+      </BuildActionEntry>
+    </BuildActionEntries>
+  </BuildAction>
+  <TestAction buildConfiguration="Debug" shouldUseLaunchSchemeArgsEnv="YES">
+    <Testables>
+      <TestableReference skipped="NO">
+        <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="6CD94637F3BB14E0BFB5B88E" BuildableName="NewexplorerTests.xctest" BlueprintName="NewexplorerTests" ReferencedContainer="container:Newexplorer.xcodeproj" />
+      </TestableReference>
+    </Testables>
+  </TestAction>
+  <LaunchAction buildConfiguration="Debug" launchStyle="0" useCustomWorkingDirectory="NO">
+    <BuildableProductRunnable runnableDebuggingMode="0">
+      <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A5F3649488E833578C08D451" BuildableName="Newexplorer.app" BlueprintName="Newexplorer" ReferencedContainer="container:Newexplorer.xcodeproj" />
+    </BuildableProductRunnable>
+  </LaunchAction>
+</Scheme>
