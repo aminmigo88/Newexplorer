@@ -14,12 +14,19 @@ assert "iPhoneOS" in info["CFBundleSupportedPlatforms"]
 binary = app / info["CFBundleExecutable"]
 assert "arm64" in subprocess.check_output(["lipo", "-archs", str(binary)], text=True)
 
+# iOS 17 supplies the Swift runtime in /usr/lib/swift. The SDK publishes
+# link stubs for these libraries even though the device stores them in dyld's cache.
+sdk = Path(subprocess.check_output(["xcrun", "--sdk", "iphoneos", "--show-sdk-path"], text=True).strip())
+swift_stubs = {p.stem + ".dylib" for p in (sdk / "usr/lib/swift").glob("libswift*.tbd")}
+
 def check_dependencies(binary):
     deps = subprocess.check_output(["otool", "-L", str(binary)], text=True).splitlines()[1:]
     for line in deps:
         path = line.strip().split(" ", 1)[0]
         if path.startswith("@rpath/"):
             relative = path.removeprefix("@rpath/")
+            if relative in swift_stubs:
+                continue
             assert (app / "Frameworks" / relative).exists(), f"Missing embedded dependency {relative}"
     print("Verified dependencies", binary.name)
 
