@@ -1,33 +1,43 @@
-import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 enum FilesPickerMode { case folder, files }
 
-struct FilesPickerRequest: Identifiable {
-    let id = UUID()
-    let mode: FilesPickerMode
-    let pane: Pane
-}
+// Presents the Files picker on its own, as UIKit expects, and keeps this
+// delegate alive until the picker reports Open or Cancel.
+@MainActor
+final class FilesPicker: NSObject, UIDocumentPickerDelegate {
+    private static var current: FilesPicker?
+    private let controller: UIDocumentPickerViewController
+    private let finish: ([URL]) -> Void
 
-struct FilesPicker: UIViewControllerRepresentable {
-    let mode: FilesPickerMode
-    let finish: ([URL]) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(finish) }
-
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: mode == .folder ? [.folder] : [.data, .package], asCopy: false)
-        picker.allowsMultipleSelection = mode == .files
-        picker.delegate = context.coordinator
-        return picker
+    private init(mode: FilesPickerMode, finish: @escaping ([URL]) -> Void) {
+        controller = UIDocumentPickerViewController(forOpeningContentTypes: mode == .folder ? [.folder] : [.data, .package], asCopy: false)
+        controller.allowsMultipleSelection = mode == .files
+        self.finish = finish
+        super.init()
+        controller.delegate = self
     }
 
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    static func present(_ mode: FilesPickerMode, finish: @escaping ([URL]) -> Void) {
+        guard let host = topViewController() else { return }
+        let picker = FilesPicker(mode: mode, finish: finish)
+        current = picker
+        host.present(picker.controller, animated: true)
+    }
 
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let finish: ([URL]) -> Void
-        init(_ finish: @escaping ([URL]) -> Void) { self.finish = finish }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finish(urls) }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish([]) }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { complete(urls) }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { complete([]) }
+
+    private func complete(_ urls: [URL]) {
+        if FilesPicker.current === self { FilesPicker.current = nil }
+        finish(urls)
+    }
+
+    private static func topViewController() -> UIViewController? {
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap { $0.windows }
+        var top = (windows.first { $0.isKeyWindow } ?? windows.first)?.rootViewController
+        while let presented = top?.presentedViewController, !presented.isBeingDismissed { top = presented }
+        return top
     }
 }
