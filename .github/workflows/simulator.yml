@@ -14,9 +14,14 @@ jobs:
           echo "SIMULATOR_ID=$device" >> "$GITHUB_ENV"
       - name: Test the app
         run: |
-          xcodebuild -quiet test -project Newexplorer.xcodeproj -scheme Newexplorer \
+          xcodebuild -quiet build-for-testing -project Newexplorer.xcodeproj -scheme Newexplorer \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
+            -derivedDataPath build/simulator CODE_SIGNING_ALLOWED=NO
+          bash Scripts/prepare_picker_test.sh build/simulator/Build/Products/Debug-iphonesimulator/Newexplorer.app "$SIMULATOR_ID"
+          TEST_RUNNER_FILES_FIXTURE=1 xcodebuild -quiet test-without-building -derivedDataPath build/simulator -project Newexplorer.xcodeproj -scheme Newexplorer \
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO
+          xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 7, result'
       - name: Report simulator test failures
         if: failure()
         run: |
