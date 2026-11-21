@@ -5,6 +5,8 @@ struct Shelf {
     let from: Location
     let items: [Entry]
     var move = false
+    // The folders of items picked from a search inside subfolders.
+    var homes: [String: Location] = [:]
 }
 
 enum ConflictChoice { case replace, keepBoth, skip, stop }
@@ -318,7 +320,7 @@ enum Transfer {
         }
         return name
     }
-    private static func download(_ entry: Entry, server: Share, from parent: String, to output: URL, meter: TransferMeter) async throws {
+    static func download(_ entry: Entry, server: Share, from parent: String, to output: URL, meter: TransferMeter) async throws {
         try meter.check()
         let path = server.child(parent, try safeName(entry.name))
         if entry.isFolder {

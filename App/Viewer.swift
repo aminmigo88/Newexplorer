@@ -114,6 +114,13 @@ final class ViewerModel: ObservableObject {
             let folder = try workspace().appendingPathComponent(UUID().uuidString)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             url = try await PhotosAccess.export(entry, into: folder)
+        case let .share(server, path):
+            // A file on a Windows share is downloaded once, then opens like any other file.
+            let folder = try workspace().appendingPathComponent(UUID().uuidString)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let target = folder.appendingPathComponent(try safeName(entry.name))
+            try await Transfer.download(entry, server: server, from: path, to: target, meter: TransferMeter())
+            url = target
         default:
             guard let local = source.fileURL(for: entry) else { throw ExplorerError("“\(entry.name)” can’t be opened here.") }
             if entry.inCloud {
@@ -134,7 +141,7 @@ final class ViewerModel: ObservableObject {
     // so it isn't exported or unpacked again; the result is the same as Copy and Paste.
     func sendSource(for entry: Entry) -> (entry: Entry, from: Location) {
         switch source {
-        case .photos, .archive:
+        case .photos, .archive, .share:
             guard let ready = prepared[entry.id] else { break }
             let size = (try? ready.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) }
             let file = Entry(id: ready.lastPathComponent, name: ready.lastPathComponent, isFolder: false, bytes: size, date: entry.date)

@@ -12,14 +12,24 @@ final class Pane: ObservableObject {
             refilter()
             // A search covers the whole Photos folder, not only the photos loaded so far.
             if !query.isEmpty, case .photos(.some) = location, !photosComplete { Task { await loadAllPhotos() } }
+            if query != oldValue { searchDeeply() }
         }
     }
     @Published var showHidden = false {
         didSet {
             refilter()
             if !showHidden { marked.formIntersection(shown.map(\.id)) }
+            if showHidden != oldValue { searchDeeply() }
         }
     }
+    // Search inside subfolders: the results, and the folder each one is in.
+    @Published var deepSearch = false { didSet { if deepSearch != oldValue { searchDeeply() } } }
+    @Published private(set) var found: [Entry]?
+    @Published private(set) var homes: [String: Location] = [:]
+    @Published private(set) var searching = false
+    private var searchTask: Task<Void, Never>?
+    // What the list shows: the results from subfolders while searching them, otherwise this folder's rows.
+    var listed: [Entry] { found ?? shown }
     // The rows as shown: sorted once when the rows or the order change, filtered when the search changes.
     @Published private(set) var shown: [Entry] = []
     private var sorted: [Entry] = []
@@ -61,6 +71,32 @@ final class Pane: ObservableObject {
         }
     }
     var sortOrder: ListOrder { isPhotos ? photoSort : fileSort }
+    private func searchDeeply() {
+        searchTask?.cancel()
+        guard deepSearch, !query.isEmpty, DeepSearch.supports(location) else {
+            found = nil
+            homes = [:]
+            searching = false
+            return
+        }
+        let text = query, place = location, hidden = showHidden, ticket = generation
+        searching = true
+        searchTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                let results = try await DeepSearch.run(text, in: place, hidden: hidden)
+                guard !Task.isCancelled, generation == ticket, query == text else { return }
+                homes = Dictionary(results.map { ($0.entry.id, $0.home) }, uniquingKeysWith: { first, _ in first })
+                found = sortOrder.sorted(results.map(\.entry))
+            } catch {
+                guard !Task.isCancelled else { return }
+                info = "The search stopped. \(error.localizedDescription)"
+                found = []
+            }
+            searching = false
+        }
+    }
     // iOS gives no sizes for photos, so the Photos list offers the other keys.
     var sortKeys: [SortKey] { isPhotos ? [.name, .date, .kind] : SortKey.allCases }
     // Choosing the current key again reverses the order.
@@ -77,6 +113,7 @@ final class Pane: ObservableObject {
             UserDefaults.standard.set(next.stored, forKey: savedFolderKey + ".sort")
         }
         resort()
+        if let found { self.found = sortOrder.sorted(found) }
     }
     func setSelecting(_ on: Bool) {
         selecting = on
@@ -84,9 +121,104 @@ final class Pane: ObservableObject {
     }
     func start() async {
         let defaults = UserDefaults.standard
+        var note: String?
+        if let data = defaults.data(forKey: spotKey), let spot = try? JSONDecoder().decode(PaneSpot.self, from: data) {
+            if await restore(spot, note: &note) { return }
+        }
         if let raw = defaults.string(forKey: placeKey), let place = Place(rawValue: raw) { await open(.place(place)) }
         else if defaults.bool(forKey: restoreKey) { await reopenFolder() }
         else { await refresh() }
+        if let note { info = note }
+    }
+    private var spotKey: String { savedFolderKey + ".spot" }
+    // Saves where the pane is, so it reopens in the same folder after a relaunch.
+    private func saveSpot() {
+        let defaults = UserDefaults.standard
+        guard let spot = spot(for: location.base), let data = try? JSONEncoder().encode(spot) else {
+            defaults.removeObject(forKey: spotKey)
+            return
+        }
+        defaults.set(data, forKey: spotKey)
+    }
+    private func spot(for location: Location) -> PaneSpot? {
+        switch location {
+        case let .folder(grant, url):
+            guard let path = PaneSpot.path(from: grant.url, to: url) else { return nil }
+            let documents = Files.samePath(grant.url, Location.documents)
+            if let place = grant.place {
+                if grant.isPlaceRoot { return PaneSpot(kind: .placeRoot, place: place.rawValue, path: path) }
+                if documents { return PaneSpot(kind: .placeApp, place: place.rawValue, path: path) }
+                guard let id = Places.shared.savedID(for: grant, in: place) else { return nil }
+                return PaneSpot(kind: .placeFolder, place: place.rawValue, id: id, path: path)
+            }
+            if documents { return PaneSpot(kind: .appFiles, path: path) }
+            // The pane's own Files folder, reopened from its bookmark.
+            guard UserDefaults.standard.bool(forKey: restoreKey) else { return nil }
+            return PaneSpot(kind: .folder, path: path)
+        case let .place(place):
+            return PaneSpot(kind: .place, place: place.rawValue)
+        case let .photos(folder):
+            return PaneSpot(kind: .photos, id: folder?.id, name: folder?.title)
+        case let .share(server, path):
+            guard let saved = SavedShares.shared.match(server) else { return nil }
+            return PaneSpot(kind: .share, id: saved.id, path: path.split(separator: "/").map(String.init))
+        case .selectedFiles, .archive:
+            return nil
+        }
+    }
+    // Reopens a saved spot. False when it is gone, so the earlier rules decide.
+    private func restore(_ spot: PaneSpot, note: inout String?) async -> Bool {
+        let place = spot.place.flatMap(Place.init(rawValue:))
+        switch spot.kind {
+        case .appFiles:
+            let documents = Location.documents
+            await open(.folder(FolderGrant(documents), PaneSpot.descend(documents, spot.path)))
+        case .folder:
+            guard UserDefaults.standard.data(forKey: savedFolderKey) != nil else { return false }
+            await reopenFolder()
+            guard !spot.path.isEmpty, message == nil, case let .folder(grant, _) = location else { return true }
+            await open(.folder(grant, PaneSpot.descend(grant.url, spot.path)))
+        case .place:
+            guard let place else { return false }
+            await open(.place(place))
+        case .placeRoot:
+            guard let place, let root = Places.shared.root(place) else { return false }
+            if spot.path.isEmpty { await open(.place(place)) }
+            else { await open(.folder(root, PaneSpot.descend(root.url, spot.path))) }
+        case .placeFolder:
+            guard let place, let id = spot.id, let grant = Places.shared.folderGrant(id: id, in: place) else { return false }
+            await open(.folder(grant, PaneSpot.descend(grant.url, spot.path)))
+        case .placeApp:
+            guard let place else { return false }
+            let documents = Location.documents
+            await open(.folder(FolderGrant(documents, place: place, isPlaceRoot: false), PaneSpot.descend(documents, spot.path)))
+        case .photos:
+            // Photos reopens only when access was already given, so a launch never starts with a permission question.
+            let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+            guard status == .authorized || status == .limited else { return false }
+            let folder = spot.id.flatMap { PhotoFolder(entry: Entry(id: $0, name: spot.name ?? "", isFolder: true, bytes: nil, date: nil)) }
+            await open(.photos(folder))
+        case .share:
+            guard let id = spot.id, let saved = SavedShares.shared.all.first(where: { $0.id == id }) else { return false }
+            do {
+                if try await connect(saved, path: spot.path) { return true }
+            } catch {}
+            note = "Couldn’t reconnect to \(saved.title). Choose it again from the location menu."
+            return false
+        }
+        return true
+    }
+    // Connects to a remembered Windows share. False when its password isn't in the Keychain.
+    @discardableResult
+    func connect(_ saved: SavedShare, path: [String] = []) async throws -> Bool {
+        guard let password = SavedShares.shared.password(for: saved) else { return false }
+        busy = true
+        defer { busy = false }
+        let server = try Share(host: saved.host, share: saved.share, user: saved.user, password: password)
+        try await server.client.connectShare(name: server.name)
+        busy = false
+        await open(.share(server, path.isEmpty ? "/" : "/" + path.joined(separator: "/")))
+        return true
     }
     func reopenFolder() async {
         let defaults = UserDefaults.standard
@@ -123,6 +255,7 @@ final class Pane: ObservableObject {
             }
         }
         defaults.set(true, forKey: restoreKey)
+        saveSpot()
     }
     func addToPlace(_ place: Place, _ urls: [URL]) async {
         let result = await Places.shared.add(urls, to: place)
@@ -151,6 +284,7 @@ final class Pane: ObservableObject {
         info = nil
         query = ""
         location = next
+        saveSpot()
         photoLimit = 150
         photosComplete = true
         await refresh()
@@ -194,7 +328,7 @@ final class Pane: ObservableObject {
             guard generation == ticket else { return }
             message = nil
             rows = result
-            marked.formIntersection(result.map(\.id))
+            if found == nil { marked.formIntersection(result.map(\.id)) } else { searchDeeply() }
             if case .photos(nil) = location { countPhotoFolders(ticket) }
         } catch {
             if generation == ticket { message = "Couldn’t open \(location.title). \(error.localizedDescription)" }
@@ -247,6 +381,7 @@ struct ExplorerView: View {
     @State private var report: ScanReport?
     @State private var showingReport = false
     @State private var working = false
+    @State private var receiving: Receiving?
 
     var body: some View {
         GeometryReader { geo in
@@ -311,6 +446,16 @@ struct ExplorerView: View {
             }
         }
         .conflictQuestion(transfers)
+        // Files from other apps: Open in or Copy to Newexplorer, or a file opened from Files.
+        .onOpenURL { url in
+            if receiving == nil { receiving = Receiving(urls: [url]) }
+            else if receiving?.urls.contains(url) == false { receiving?.urls.append(url) }
+        }
+        .sheet(item: $receiving) { item in
+            SaveToView(urls: item.urls, choices: saveChoices(for: item.urls), transfers: transfers,
+                       save: { saveIncoming(item.urls, to: $0) },
+                       cancel: { Incoming.discard(item.urls); receiving = nil })
+        }
         .alert("Newexplorer", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
@@ -323,15 +468,51 @@ struct ExplorerView: View {
                         transferring: transfers.running,
                         pick: { picker = FilesPickerRequest(mode: $0, pane: model) },
                         copy: { move in
-                            shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) }, move: move)
+                            shelf = Shelf(from: model.location, items: model.listed.filter { model.marked.contains($0.id) }, move: move,
+                                          homes: model.found == nil ? [:] : model.homes)
                             transferStatus = nil
                         },
                         paste: { transfer(into: model) },
                         scan: { scan(model) },
                         send: { items in send(items, from: model, to: other) },
+                        dropped: { ids in send(other.listed.filter { ids.contains($0.id) }, from: other, to: model) },
                         archive: { archive($0, extract: $1, pane: model) },
                         compress: { compress($0, named: $1, pane: model) },
                         action: { edit($0, pane: model) })
+    }
+
+    // Where a received file can go: App files, and each pane's location that accepts it.
+    private func saveChoices(for urls: [URL]) -> [SaveChoice] {
+        var choices = [SaveChoice(title: "App files", symbol: "iphone", location: .appFiles)]
+        for (label, pane) in [("A", first), ("B", second)] where pane.message == nil && accepts(pane.location, urls) {
+            choices.append(SaveChoice(title: "Pane \(label) · \(pane.location.title)", symbol: pane.location.symbol, location: pane.location))
+        }
+        return choices
+    }
+    private func accepts(_ location: Location, _ urls: [URL]) -> Bool {
+        switch location {
+        case .folder: return !location.isAppFiles
+        case let .place(place): return Places.shared.hasRoot(place)
+        case .share: return true
+        case .photos:
+            return urls.allSatisfy { url in
+                UTType(filenameExtension: url.pathExtension).map { $0.conforms(to: .image) || $0.conforms(to: .audiovisualContent) } ?? false
+            }
+        case .selectedFiles, .archive: return false
+        }
+    }
+    private func saveIncoming(_ urls: [URL], to destination: Location) {
+        guard !transfers.running else { return }
+        receiving = nil
+        let grants = urls.map(FolderGrant.init)
+        transferStatus = nil
+        transfers.start(urls.map(Incoming.entry(for:)), from: .selectedFiles(grants), to: destination, move: false) { report in
+            // iOS's own copies in the Inbox go once saved; a file opened from Files stays where it is.
+            if report.failure == nil && !report.cancelled && !report.stopped { Incoming.discard(urls) }
+            transferStatus = summary(report, move: false, to: destination)
+            if let failure = report.failure { notice = failure }
+            Task { await reloadPanes(showing: [destination, .appFiles]) }
+        }
     }
 
     // Reloads, in place, only the panes that show one of the changed locations.
@@ -350,18 +531,18 @@ struct ExplorerView: View {
         guard let selection = shelf, !transfers.running else { return }
         let destination = pane.location
         transferStatus = nil
-        transfers.start(selection.items, from: selection.from, to: destination, move: selection.move) { report in
+        transfers.start(selection.items, from: selection.from, homes: selection.homes, to: destination, move: selection.move) { report in
             if report.failure == nil && !report.cancelled && !report.stopped && shelf?.id == selection.id { shelf = nil }
             transferStatus = summary(report, move: selection.move, to: destination)
             if let failure = report.failure { notice = failure }
-            Task { await reloadPanes(showing: selection.move ? [destination, selection.from] : [destination]) }
+            Task { await reloadPanes(showing: selection.move ? [destination, selection.from] + selection.homes.values : [destination]) }
         }
     }
     private func send(_ items: [Entry], from source: Pane, to target: Pane) {
         guard !transfers.running, !items.isEmpty else { return }
         let origin = source.location, destination = target.location
         transferStatus = nil
-        transfers.start(items, from: origin, to: destination, move: false) { report in
+        transfers.start(items, from: origin, homes: source.found == nil ? [:] : source.homes, to: destination, move: false) { report in
             transferStatus = summary(report, move: false, to: destination)
             if let failure = report.failure { notice = failure }
             Task { await reloadPanes(showing: [destination]) }
@@ -455,6 +636,7 @@ struct PaneView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var pane: Pane
     @ObservedObject var places = Places.shared
+    @ObservedObject var shares = SavedShares.shared
     @ObservedObject var other: Pane
     let label: String
     let canPaste: Bool
@@ -464,10 +646,14 @@ struct PaneView: View {
     let copy: (Bool) -> Void
     let paste, scan: () -> Void
     let send: ([Entry]) -> Void
+    // Ids of rows dragged here from the other pane.
+    let dropped: ([String]) -> Void
     let archive: (Entry, Bool) -> Void
     let compress: ([Entry], String) -> Void
     let action: (FileAction) -> Void
     @State private var connecting = false
+    @State private var prefill: SavedShare?
+    @State private var dropping = false
     @State private var viewing: ViewerRequest?
     @State private var viewerOutcome: ViewerOutcome?
     @State private var info: InfoRequest?
@@ -491,7 +677,10 @@ struct PaneView: View {
     private func selectable(_ row: Entry) -> Bool { !(photosTop && row.isFolder) }
     private var currentPlace: Place? { if case let .place(place) = pane.location { return place }; return nil }
     private var otherLabel: String { label == "A" ? "B" : "A" }
-    private var selectedRows: [Entry] { pane.rows.filter { pane.marked.contains($0.id) } }
+    private var selectedRows: [Entry] { pane.listed.filter { pane.marked.contains($0.id) } }
+    // The folder a search result is in; nil for rows of this folder.
+    private func home(_ row: Entry) -> Location? { pane.found == nil ? nil : pane.homes[row.id] }
+    private func base(_ row: Entry) -> Location { home(row) ?? pane.location }
     private func open(_ location: Location) {
         Task { await pane.open(location) }
     }
@@ -501,9 +690,9 @@ struct PaneView: View {
     }
     // The folder a row's file is in, so Send isn't offered into that same folder.
     private func sourceFolder(_ row: Entry) -> URL? {
-        switch pane.location {
+        switch base(row) {
         case .photos, .archive, .share: return nil
-        default: return pane.location.fileURL(for: row)?.deletingLastPathComponent()
+        default: return base(row).fileURL(for: row)?.deletingLastPathComponent()
         }
     }
     private func canSend(_ row: Entry) -> Bool {
@@ -512,7 +701,31 @@ struct PaneView: View {
     }
     // Extract and Create ZIP write next to the item, so they need a folder on disk.
     private func writesNext(to row: Entry) -> Bool {
-        local || (currentPlace != nil && row.placeRole == .rootItem)
+        home(row) == nil && (local || (currentPlace != nil && row.placeRole == .rootItem))
+    }
+    private var canReceiveDrop: Bool {
+        !transferring && !pane.busy && pane.message == nil && !pane.location.isFileSelection && !archiveLocation
+    }
+    // A drop from the other pane copies the dragged rows here, the same as Send.
+    private func receiveDrop(_ items: [String]) -> Bool {
+        guard canReceiveDrop, let payload = items.compactMap({ DragPayload.read($0) }).first, payload.pane == otherLabel else { return false }
+        dropped(payload.ids)
+        return true
+    }
+    private func dragIDs(_ row: Entry) -> [String] {
+        pane.selecting && pane.marked.contains(row.id) ? pane.listed.map(\.id).filter { pane.marked.contains($0) } : [row.id]
+    }
+    private func connectSaved(_ item: SavedShare) {
+        Task {
+            do {
+                if try await pane.connect(item) == false {
+                    prefill = item
+                    connecting = true
+                }
+            } catch {
+                pane.info = "Couldn’t connect to \(item.title). \(error.localizedDescription)"
+            }
+        }
     }
 
     @ViewBuilder private var locationChoices: some View {
@@ -526,8 +739,11 @@ struct PaneView: View {
             .accessibilityIdentifier("browse-files-" + label)
         Button("Open Photos", systemImage: "photo.on.rectangle") { open(.photos(nil)) }
             .accessibilityIdentifier("open-photos-" + label)
-        Button("Connect to Windows", systemImage: "network") { connecting = true }
+        Button("Connect to Windows", systemImage: "network") { prefill = nil; connecting = true }
             .accessibilityIdentifier("connect-windows-" + label)
+        ForEach(shares.all) { item in
+            Button(item.title, systemImage: "externaldrive.connected.to.line.below") { connectSaved(item) }
+        }
     }
 
     private var settingsButton: some View {
@@ -599,14 +815,14 @@ struct PaneView: View {
                             }
                         } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
                     }
-                    Button("Select visible items") { pane.selecting = true; pane.marked = Set(pane.shown.filter(selectable).map(\.id)) }
+                    Button("Select visible items") { pane.selecting = true; pane.marked = Set(pane.listed.filter(selectable).map(\.id)) }
                     Button("Clear selection") { pane.marked.removeAll() }
                     if local || currentPlace != nil {
                         Button("Compress selected items…", systemImage: "archivebox") {
                             let rows = selectedRows
                             zipName = rows.count == 1 ? rows[0].name + ".zip" : "Archive.zip"
                             zipNaming = true
-                        }.disabled(pane.marked.isEmpty)
+                        }.disabled(pane.marked.isEmpty || pane.found != nil)
                     }
                     if !photoLocation && !pane.location.isFileSelection && !archiveLocation {
                         Button("New folder", systemImage: "folder.badge.plus") {
@@ -616,7 +832,7 @@ struct PaneView: View {
                         }
                     }
                     Button("Delete selected…", systemImage: "trash", role: .destructive) { deleting = true }
-                        .disabled(pane.marked.isEmpty || pane.location.isFileSelection || archiveLocation)
+                        .disabled(pane.marked.isEmpty || pane.location.isFileSelection || archiveLocation || pane.found != nil)
                     if local { Button("Find duplicates and empty folders", systemImage: "magnifyingglass") { scan() } }
                 } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel("Pane options")
             }.padding(10)
@@ -626,6 +842,15 @@ struct PaneView: View {
                 TextField("Search this location", text: $pane.query)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                 if !pane.query.isEmpty { Button { pane.query = "" } label: { Image(systemName: "xmark.circle.fill") } }
+                if DeepSearch.supports(pane.location) {
+                    Button { pane.deepSearch.toggle() } label: {
+                        Label("Subfolders", systemImage: pane.deepSearch ? "checkmark.square.fill" : "square")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Search subfolders too")
+                    .accessibilityValue(pane.deepSearch ? "On" : "Off")
+                    .accessibilityIdentifier("deep-search-" + label)
+                }
             }.font(.subheadline).padding(.horizontal, 12).padding(.vertical, 6)
             if pane.busy { Spacer(); ProgressView(); Spacer() }
             else if let message = pane.message {
@@ -648,9 +873,16 @@ struct PaneView: View {
                 List {
                     if let warning = pane.bookmarkWarning { Text(warning).font(.footnote) }
                     if let info = pane.info { Text(info).font(.footnote) }
-                    if let place = currentPlace { placeHeader(place) }
-                    if pane.shown.isEmpty { emptyRows }
-                    ForEach(pane.shown) { row in
+                    if let place = currentPlace, pane.found == nil { placeHeader(place) }
+                    if pane.searching {
+                        HStack { Text("Searching subfolders…"); Spacer(); ProgressView() }.font(.footnote).foregroundStyle(.secondary)
+                    } else if let found = pane.found, !found.isEmpty {
+                        Text(found.count >= DeepSearch.limit ? "Showing the first \(DeepSearch.limit) matches in this folder and its subfolders."
+                                                             : "\(found.count) \(found.count == 1 ? "match" : "matches") in this folder and its subfolders.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if pane.listed.isEmpty && !pane.searching { emptyRows }
+                    ForEach(pane.listed) { row in
                         HStack {
                             if pane.selecting && selectable(row) {
                                 Button { toggle(row.id) } label: {
@@ -662,7 +894,7 @@ struct PaneView: View {
                             } label: {
                                 HStack {
                                     if row.isPhoto { PhotoThumbnail(id: row.id) }
-                                    else { Image(systemName: row.isFolder ? "folder.fill" : "doc").foregroundStyle(row.isFolder ? Color.teal : .secondary) }
+                                    else { FileThumbnail(row: row, url: row.isFolder ? nil : base(row).fileURL(for: row)) }
                                     VStack(alignment: .leading) {
                                         Text(row.name).foregroundStyle(.primary).lineLimit(2)
                                         if let note = row.note { Text(note).font(.caption).foregroundStyle(.secondary) }
@@ -683,9 +915,11 @@ struct PaneView: View {
                                 Button("Share", systemImage: "square.and.arrow.up") { share(row) }
                             }
                             if row.placeRole != .unavailable {
-                                Button("Info", systemImage: "info.circle") { info = MediaInfo.request(for: row, in: pane.location) }
+                                Button("Info", systemImage: "info.circle") { info = MediaInfo.request(for: row, in: base(row)) }
                             }
-                            if let place = currentPlace, let role = row.placeRole, role != .rootItem {
+                            if let folder = home(row) {
+                                Button("Show in folder", systemImage: "folder") { open(folder) }
+                            } else if let place = currentPlace, let role = row.placeRole, role != .rootItem {
                                 if role == .savedFolder || role == .unavailable {
                                     Button("Rename in list", systemImage: "pencil") {
                                         listName = row.name
@@ -702,7 +936,7 @@ struct PaneView: View {
                                     naming = true
                                 }
                             }
-                            if !pane.location.isFileSelection && !archiveLocation && selectable(row) && (row.placeRole ?? .rootItem) == .rootItem {
+                            if home(row) == nil && !pane.location.isFileSelection && !archiveLocation && selectable(row) && (row.placeRole ?? .rootItem) == .rootItem {
                                 Button("Delete…", systemImage: "trash", role: .destructive) {
                                     pane.marked = [row.id]
                                     deleting = true
@@ -715,6 +949,7 @@ struct PaneView: View {
                                 Button("Create ZIP", systemImage: "archivebox") { archive(row, false) }
                             }
                         }
+                        .draggableIf(selectable(row) && row.placeRole != .unavailable, DragPayload.text(pane: label, ids: dragIDs(row)))
                     }
                     if case .photos(.some) = pane.location, !pane.photosComplete {
                         if pane.query.isEmpty {
@@ -734,7 +969,9 @@ struct PaneView: View {
                             }.disabled(pane.loadingMore).accessibilityIdentifier("search-all-" + label)
                         }
                     }
-                }.listStyle(.plain)
+                }
+                .listStyle(.plain)
+                .dropDestination(for: String.self) { items, _ in receiveDrop(items) } isTargeted: { dropping = $0 && canReceiveDrop }
             }
             Divider()
             HStack(spacing: 16) {
@@ -750,7 +987,7 @@ struct PaneView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(dropping ? AnyShapeStyle(Color.teal) : AnyShapeStyle(.quaternary), lineWidth: dropping ? 3 : 1))
         .padding(.horizontal, 6)
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, photoLocation, !pane.busy,
@@ -800,12 +1037,24 @@ struct PaneView: View {
         } message: {
             Text(photoLocation ? "Deleting from Photos also deletes the items from iCloud Photos and synced devices. Photos controls recovery in Recently Deleted." : "Files and folders will be permanently removed from this location. Check your selection before continuing.")
         }
-        .sheet(isPresented: $connecting) { ConnectionView { server in open(.share(server, "/")) } }
+        .sheet(isPresented: $connecting) { ConnectionView(prefill: prefill) { server in open(.share(server, "/")) } }
     }
     private func toggle(_ id: String) {
         if !pane.marked.insert(id).inserted { pane.marked.remove(id) }
     }
     private func activate(_ row: Entry) {
+        if let folder = home(row) {
+            if row.isFolder { open(folder.subdirectory(row.name)) }
+            else if !folder.isArchive && ArchiveTools.isBrowsable(row.name), let url = folder.fileURL(for: row) { openArchive(row, at: url, from: folder) }
+            else {
+                // The viewer swipes through the results found in the same folder.
+                let files = pane.listed.filter { !$0.isFolder && $0.note == row.note }
+                let outcome = ViewerOutcome()
+                viewerOutcome = outcome
+                viewing = ViewerRequest(items: files, start: files.firstIndex { $0.id == row.id } ?? 0, source: folder, outcome: outcome)
+            }
+            return
+        }
         if row.isFolder {
             if let place = currentPlace {
                 if let next = places.location(for: row, in: place) { open(next) }
@@ -814,7 +1063,7 @@ struct PaneView: View {
             } else { open(pane.location.subdirectory(row.name)) }
         } else if !photoLocation && !archiveLocation && ArchiveTools.isBrowsable(row.name), let url = pane.location.fileURL(for: row) {
             openArchive(row, at: url)
-        } else if photoLocation || archiveLocation || pane.location.fileURL(for: row) != nil {
+        } else if photoLocation || archiveLocation || isShare || pane.location.fileURL(for: row) != nil {
             // The viewer swipes through the files of this list in the order shown.
             let files = pane.shown.filter { !$0.isFolder }
             let outcome = ViewerOutcome()
@@ -848,7 +1097,7 @@ struct PaneView: View {
         Task {
             defer { downloading = nil }
             do {
-                let (url, temporary) = try await Transfer.localFile(row, from: location)
+                let (url, temporary) = try await Transfer.localFile(row, from: home(row) ?? location)
                 shareTemporary = temporary
                 sharing = SharedFile(url: url)
             } catch {
@@ -857,9 +1106,11 @@ struct PaneView: View {
         }
     }
 
+    private var isShare: Bool { if case .share = pane.location { return true }; return false }
+
     // An archive opens like a folder; one still in iCloud downloads first.
-    private func openArchive(_ row: Entry, at url: URL) {
-        let parent = pane.location
+    private func openArchive(_ row: Entry, at url: URL, from folder: Location? = nil) {
+        let parent = folder ?? pane.location
         guard row.inCloud else { open(.archive(ArchiveRef(url: url, parent: parent), "")); return }
         downloading = row.id
         Task {
@@ -874,5 +1125,12 @@ struct PaneView: View {
                 pane.info = "Couldn’t download \(row.name). \(error.localizedDescription)"
             }
         }
+    }
+}
+
+extension View {
+    // Rows that can be copied can also be dragged to the other pane.
+    @ViewBuilder func draggableIf(_ enabled: Bool, _ payload: @autoclosure @escaping () -> String) -> some View {
+        if enabled { draggable(payload()) } else { self }
     }
 }

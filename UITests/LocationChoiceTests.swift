@@ -12,8 +12,11 @@ final class LocationChoiceTests: XCTestCase {
                 XCTAssertTrue(app.buttons[choice + pane].exists, choice + pane)
             }
         }
+        XCTAssertTrue(app.buttons["deep-search-A"].exists, app.debugDescription)
         app.buttons["connect-windows-B"].tap()
         XCTAssertTrue(app.textFields["Computer name or IP address"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["find-devices"].exists, app.debugDescription)
+        XCTAssertTrue(app.buttons["list-shares"].exists, app.debugDescription)
         app.buttons["Cancel"].tap()
 
         photos.tap()
