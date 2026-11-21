@@ -185,5 +185,10 @@ final class BatchTwoTests: XCTestCase {
         XCTAssertEqual(FileIcon.symbol(for: "f.txt", isFolder: false), "doc.text")
         XCTAssertEqual(FileIcon.symbol(for: "g.swift", isFolder: false), "chevron.left.forwardslash.chevron.right")
         XCTAssertEqual(FileIcon.symbol(for: "h.qqqzzz", isFolder: false), "doc")
+        XCTAssertTrue(FileIcon.hasThumbnail("IMG_1.HEIC"))
+        XCTAssertTrue(FileIcon.hasThumbnail("clip.mov"))
+        XCTAssertTrue(FileIcon.hasThumbnail("manual.pdf"))
+        XCTAssertFalse(FileIcon.hasThumbnail("notes.txt"))
+        XCTAssertFalse(FileIcon.hasThumbnail("song.mp3"))
     }
 }

@@ -34,6 +34,14 @@ jobs:
         run: |
           if [ -d SimulatorTests.xcresult ]; then
             xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult
+            # The steps each failed test went through, so the report shows where it stopped.
+            failed=$(xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult \
+              | python3 -c 'import json,sys; print("\n".join(f["testIdentifierString"] for f in json.load(sys.stdin).get("testFailures", [])))')
+            for id in $failed; do
+              echo "== Steps of $id"
+              xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult --test-id "$id" \
+                | grep -o '"title" : "[^"]*"' | grep -vE 'Synthesize|Wait for|Find the|Check for|Requesting snapshot|Get all elements|Snapshot accessibility' | tail -40 || true
+            done
           fi
       - name: Build unsigned iPhone app
         if: github.ref == 'refs/heads/main'

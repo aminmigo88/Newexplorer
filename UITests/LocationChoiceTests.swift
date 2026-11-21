@@ -70,6 +70,7 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertTrue(app.buttons["place-add-A"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(app.buttons["Pane A location"].value as? String, "On My iPhone")
 
+        step("Pick Downloads for pane B")
         let choose = app.buttons["choose-folder-B"]
         XCTAssertTrue(choose.waitForExistence(timeout: 15))
         choose.tap()
@@ -82,6 +83,7 @@ final class LocationChoiceTests: XCTestCase {
             XCTAssertEqual(app.buttons["Pane B location"].value as? String, "Downloads")
         }
         checkFolder()
+        step("Relaunch")
         app.terminate()
         app.launch()
         checkFolder()
@@ -92,6 +94,7 @@ final class LocationChoiceTests: XCTestCase {
         addedFolder.tap()
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)
 
+        step("Browse Files pick")
         // Single files still open in place from Browse Files locations. A pick the simulator
         // drops stays dropped in that picker, so retry with a fresh launch.
         let selection = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane A location", "Selected files")).firstMatch
@@ -162,7 +165,8 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertFalse(inPictures.contains("item-B-" + next), "\(inPictures)")
 
         // The viewer swipes to the next photo and back.
-        photos.element(boundBy: 0).tap()
+        step("Open a photo in the viewer")
+        openViewer(photos.element(boundBy: 0), in: app)
         XCTAssertTrue(app.navigationBars.staticTexts[name].waitForExistence(timeout: 15), app.debugDescription)
         app.swipeLeft()
         XCTAssertTrue(app.navigationBars.staticTexts[next].waitForExistence(timeout: 10), app.debugDescription)
@@ -170,6 +174,7 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertTrue(app.navigationBars.staticTexts[name].waitForExistence(timeout: 10), app.debugDescription)
 
         // Info shows the file and image data.
+        step("Viewer Info")
         app.buttons["viewer-info"].tap()
         XCTAssertTrue(app.staticTexts["Dimensions"].waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", " × ")).firstMatch.exists, app.debugDescription)
@@ -177,6 +182,7 @@ final class LocationChoiceTests: XCTestCase {
         app.buttons["info-done"].tap()
 
         // Send copies the photo into pane A.
+        step("Send to pane A")
         let send = app.buttons["viewer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertTrue(send.label.contains("Send to A"), send.label)
@@ -190,39 +196,37 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
 
         // With Photos in pane B, a file opened in pane A offers no Send.
-        copied.tap()
-        XCTAssertTrue(app.buttons["viewer-close"].waitForExistence(timeout: 10), app.debugDescription)
+        step("Open the copy in pane A")
+        openViewer(copied, in: app)
         XCTAssertFalse(app.buttons["viewer-send"].exists, app.debugDescription)
         app.buttons["viewer-close"].tap()
 
         // Long-press Info shows the file's data without opening it.
+        step("Long-press Info")
         XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
-        copied.press(forDuration: 1.2)
-        let info = app.buttons["Info"]
-        XCTAssertTrue(info.waitForExistence(timeout: 5), app.debugDescription)
-        info.tap()
+        menuItem("Info", on: copied, in: app).tap()
         XCTAssertTrue(app.staticTexts["Size"].waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["info-done"].tap()
 
         // A ZIP opens like a folder; a file inside opens in the viewer; up leaves the archive.
+        step("Create ZIP")
         XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
-        copied.press(forDuration: 1.2)
-        let createZip = app.buttons["Create ZIP"]
-        XCTAssertTrue(createZip.waitForExistence(timeout: 5), app.debugDescription)
-        createZip.tap()
+        menuItem("Create ZIP", on: copied, in: app).tap()
         let zip = app.buttons["item-A-" + name + ".zip"]
         XCTAssertTrue(zip.waitForExistence(timeout: 15), app.debugDescription)
         zip.tap()
         XCTAssertTrue(location("A", is: name + ".zip", in: app).waitForExistence(timeout: 10), app.debugDescription)
         let packed = app.buttons["item-A-" + name]
         XCTAssertTrue(packed.waitForExistence(timeout: 10), app.debugDescription)
-        packed.tap()
+        step("Open a file inside the ZIP")
+        openViewer(packed, in: app)
         XCTAssertTrue(app.navigationBars.staticTexts[name].waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["viewer-close"].tap()
         app.buttons.matching(NSPredicate(format: "label == %@", "Parent folder")).element(boundBy: 0).tap()
         XCTAssertTrue(location("A", is: "App files", in: app).waitForExistence(timeout: 10), app.debugDescription)
 
         // Selection starts off; the switch shows the circles and a tap then ticks the row.
+        step("Selection switch")
         XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["Select \(name)"].exists)
         app.buttons["select-mode-A"].tap()
@@ -296,10 +300,45 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertNotNil(visible("Folder Test Source", in: app, timeout: 5), app.debugDescription)
     }
 
+    // The picker sometimes goes back to its top list after a tap; try the way in again.
     private func enterFixture(in app: XCUIApplication) {
-        if visible("root-file", in: app, timeout: 2) != nil { return }
-        showOnMyIPhone(in: app)
-        tap("Folder Test Source", in: app)
-        XCTAssertNotNil(visible("root-file", in: app), app.debugDescription)
+        for attempt in 1...3 {
+            if visible("root-file", in: app, timeout: 2) != nil { return }
+            showOnMyIPhone(in: app)
+            visible("Folder Test Source", in: app)?.tap()
+            if visible("root-file", in: app) != nil { return }
+            XCTContext.runActivity(named: "Fixture folder not shown, attempt \(attempt)") { _ in }
+        }
+        XCTFail("The picker never showed the fixture folder. " + app.debugDescription)
+    }
+
+    // Marks where a test is, so a failure report shows the step it stopped at.
+    private func step(_ name: String) {
+        XCTContext.runActivity(named: "Step: " + name) { _ in }
+    }
+
+    // The simulator sometimes misses a tap while the list is still settling.
+    private func openViewer(_ row: XCUIElement, in app: XCUIApplication) {
+        let close = app.buttons["viewer-close"]
+        for attempt in 1...3 {
+            XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+            row.tap()
+            if close.waitForExistence(timeout: 10) { return }
+            XCTContext.runActivity(named: "Viewer not open, attempt \(attempt)") { _ in }
+        }
+        XCTFail("The viewer never opened. " + app.debugDescription)
+    }
+
+    // Long-presses until the menu shows the item; a missed press is closed and tried again.
+    private func menuItem(_ label: String, on row: XCUIElement, in app: XCUIApplication) -> XCUIElement {
+        let item = app.buttons[label]
+        for attempt in 1...3 {
+            row.press(forDuration: 1.2)
+            if item.waitForExistence(timeout: 5) { return item }
+            XCTContext.runActivity(named: "No \(label) in the menu, attempt \(attempt)") { _ in }
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.06)).tap()
+        }
+        XCTFail("The menu never showed \(label). " + app.debugDescription)
+        return item
     }
 }

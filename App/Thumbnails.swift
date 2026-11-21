@@ -21,6 +21,12 @@ enum FileIcon {
         if type.conforms(to: .text) || type.conforms(to: .compositeContent) { return "doc.text" }
         return "doc"
     }
+    // Photos, videos and PDFs get a thumbnail; other files keep their type icon.
+    static func hasThumbnail(_ name: String) -> Bool {
+        guard let type = UTType(filenameExtension: (name as NSString).pathExtension) else { return false }
+        return type.conforms(to: .image) || type.conforms(to: .pdf)
+            || (type.conforms(to: .audiovisualContent) && !type.conforms(to: .audio))
+    }
 }
 
 // Thumbnails made once per file version and kept while the app runs.
@@ -33,7 +39,7 @@ final class ThumbnailCache {
     func store(_ image: UIImage, _ key: String) { images.setObject(image, forKey: key as NSString) }
 }
 
-// A QuickLook thumbnail for a file on this iPhone, otherwise the icon for its type.
+// A QuickLook thumbnail for a photo, video or PDF on this iPhone, otherwise the icon for its type.
 // Files still in iCloud keep their icon, so listing a folder never downloads them.
 struct FileThumbnail: View {
     let row: Entry
@@ -42,7 +48,7 @@ struct FileThumbnail: View {
     @State private var picture: UIImage?
 
     private var key: String? {
-        guard let url, !row.isFolder, !row.inCloud else { return nil }
+        guard let url, !row.isFolder, !row.inCloud, FileIcon.hasThumbnail(row.name) else { return nil }
         return url.path + "|" + String(row.date?.timeIntervalSince1970 ?? 0) + "|" + String(row.bytes ?? -1)
     }
     var body: some View {
