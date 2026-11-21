@@ -949,7 +949,6 @@ struct PaneView: View {
                                 Button("Create ZIP", systemImage: "archivebox") { archive(row, false) }
                             }
                         }
-                        .draggableIf(selectable(row) && row.placeRole != .unavailable, DragPayload.text(pane: label, ids: dragIDs(row)))
                     }
                     if case .photos(.some) = pane.location, !pane.photosComplete {
                         if pane.query.isEmpty {
@@ -971,7 +970,6 @@ struct PaneView: View {
                     }
                 }
                 .listStyle(.plain)
-                .dropDestination(for: String.self) { items, _ in receiveDrop(items) } isTargeted: { dropping = $0 && canReceiveDrop }
             }
             Divider()
             HStack(spacing: 16) {
