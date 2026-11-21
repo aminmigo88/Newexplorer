@@ -166,6 +166,26 @@ enum Location {
         if case .archive = self { return true }
         return false
     }
+    // Keys naming what a pane shows, so only panes showing a changed place are reloaded.
+    @MainActor var spotKeys: Set<String> {
+        func folderKey(_ url: URL) -> String { "folder:" + url.standardizedFileURL.resolvingSymlinksInPath().path }
+        switch self {
+        case let .folder(_, url):
+            var keys: Set<String> = [folderKey(url)]
+            for place in Place.allCases {
+                if let root = Places.shared.root(place), Files.samePath(root.url, url) { keys.insert("place:" + place.rawValue) }
+            }
+            return keys
+        case let .place(place):
+            var keys: Set<String> = ["place:" + place.rawValue]
+            if let root = Places.shared.root(place) { keys.insert(folderKey(root.url)) }
+            return keys
+        case let .share(server, path): return ["share:\(server.host)/\(server.name)\(path)"]
+        case let .photos(folder): return ["photos:" + (folder?.id ?? "")]
+        case let .archive(ref, inner): return ["archive:" + ref.url.path + "#" + inner]
+        case .selectedFiles: return []
+        }
+    }
     func fileURL(for row: Entry) -> URL? {
         switch self {
         case let .folder(_, url): return url.appendingPathComponent(row.name)
@@ -224,7 +244,10 @@ enum Directory {
         case let .share(server, path): items = try await server.entries(path)
         case let .selectedFiles(grants):
             items = grants.map { grant in
-                Entry(id: grant.url.absoluteString, name: grant.url.lastPathComponent, isFolder: false, bytes: nil, date: nil)
+                let info = try? grant.url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .ubiquitousItemDownloadingStatusKey])
+                return Entry(id: grant.url.absoluteString, name: grant.url.lastPathComponent, isFolder: false,
+                             bytes: info?.fileSize.map { Int64($0) }, date: info?.contentModificationDate,
+                             inCloud: info?.ubiquitousItemDownloadingStatus == .notDownloaded)
             }
         case let .place(place): items = try await Places.shared.entries(for: place)
         case let .photos(folder):

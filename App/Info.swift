@@ -16,13 +16,33 @@ struct InfoSection: Identifiable {
     var id: String { title }
 }
 
-// File data plus EXIF for photos and duration and resolution for videos.
+// What an Info sheet shows and how to load it; cleanup runs when the sheet closes.
+struct InfoRequest: Identifiable {
+    let id = UUID()
+    let title: String
+    let load: @MainActor () async throws -> [InfoSection]
+    var cleanup: (@MainActor () -> Void)? = nil
+}
+
+// File data plus EXIF for photos and duration and resolution for videos; size and contents for folders.
 struct InfoView: View {
-    let entry: Entry
-    let model: ViewerModel
+    private let title: String
+    private let load: @MainActor () async throws -> [InfoSection]
+    private let cleanup: (@MainActor () -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var sections: [InfoSection]?
     @State private var failure: String?
+
+    init(entry: Entry, model: ViewerModel) {
+        title = entry.name
+        load = { try await MediaInfo.sections(for: entry, in: model) }
+        cleanup = nil
+    }
+    init(_ request: InfoRequest) {
+        title = request.title
+        load = request.load
+        cleanup = request.cleanup
+    }
 
     var body: some View {
         NavigationStack {
@@ -43,7 +63,7 @@ struct InfoView: View {
                     HStack { Spacer(); ProgressView(); Spacer() }
                 }
             }
-            .navigationTitle(entry.name)
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -53,9 +73,10 @@ struct InfoView: View {
         }
         .presentationDetents([.medium, .large])
         .task {
-            do { sections = try await MediaInfo.sections(for: entry, in: model) }
+            do { sections = try await load() }
             catch { failure = error.localizedDescription }
         }
+        .onDisappear { cleanup?() }
     }
 }
 
@@ -72,6 +93,90 @@ enum MediaInfo {
                 ("Modified", date(entry.date)), ("Where", place)]))
         }
         return sections
+    }
+
+    // Info for a row of a pane, opened by a long press.
+    @MainActor static func request(for row: Entry, in location: Location) -> InfoRequest {
+        if row.isFolder { return InfoRequest(title: row.name) { try await folderSections(row, in: location) } }
+        if case .share = location { return InfoRequest(title: row.name) { entrySections(row, place: location.title) } }
+        if row.inCloud { return InfoRequest(title: row.name) { entrySections(row, place: location.title, stored: "In iCloud, not downloaded") } }
+        let model = ViewerModel(ViewerRequest(items: [row], start: 0, source: location, outcome: ViewerOutcome()))
+        return InfoRequest(title: row.name, load: { try await sections(for: row, in: model) }, cleanup: { model.cleanup() })
+    }
+    // What the list already knows, for files that would have to be downloaded first.
+    static func entrySections(_ row: Entry, place: String, stored: String? = nil) -> [InfoSection] {
+        [InfoSection(title: "File", rows: rows([
+            ("Name", row.name), ("Kind", kind(URL(fileURLWithPath: row.name))), ("Size", size(row.bytes)),
+            ("Modified", date(row.date)), ("Stored", stored), ("Where", place)]))]
+    }
+    // Total size and item count of a folder, wherever it is.
+    @MainActor static func folderSections(_ row: Entry, in location: Location) async throws -> [InfoSection] {
+        var measure = Files.Measure()
+        switch location {
+        case let .folder(grant, url):
+            let folder = url.appendingPathComponent(try safeName(row.name))
+            measure = try await Task.detached { try withExtendedLifetime(grant) { try Files.measure(folder) } }.value
+        case let .place(place):
+            guard let target = Places.shared.location(for: row, in: place), case let .folder(grant, folder) = target else {
+                throw ExplorerError("This folder can’t be opened. Add it again.")
+            }
+            measure = try await Task.detached { try withExtendedLifetime(grant) { try Files.measure(folder) } }.value
+        case let .archive(ref, _):
+            let items = try await Task.detached { try ref.items() }.value
+            measure = archiveMeasure(items, under: row.id)
+        case let .share(server, path):
+            measure = try await shareMeasure(server, server.child(path, try safeName(row.name)))
+        case .photos(nil):
+            guard let folder = PhotoFolder(entry: row) else { throw ExplorerError("This folder is no longer available.") }
+            let counts = try await PhotosAccess.counts(folder)
+            return [InfoSection(title: "Folder", rows: rows([
+                ("Name", row.name), ("Kind", "Photos folder"), ("Photos", counts.photos.formatted()),
+                ("Videos", counts.videos.formatted()), ("Where", "Photos")]))]
+        default:
+            throw ExplorerError("Info isn’t available for this folder.")
+        }
+        return [InfoSection(title: "Folder", rows: rows([
+            ("Name", row.name), ("Kind", "Folder"), ("Size", size(measure.bytes)),
+            ("Contains", contents(measure)), ("Modified", date(row.date)), ("Where", location.title)]))]
+    }
+    static func contents(_ measure: Files.Measure) -> String {
+        func count(_ number: Int, _ one: String, _ many: String) -> String { number.formatted() + " " + (number == 1 ? one : many) }
+        return count(measure.files, "file", "files") + ", " + count(measure.folders, "folder", "folders")
+    }
+    // Folders in an archive also come from the paths of the files inside them.
+    static func archiveMeasure(_ items: [ArchiveItem], under folder: String) -> Files.Measure {
+        let prefix = folder + "/"
+        var result = Files.Measure()
+        var folders = Set<String>()
+        for item in items where item.path.hasPrefix(prefix) {
+            let parts = item.path.dropFirst(prefix.count).split(separator: "/").map(String.init)
+            guard !parts.isEmpty else { continue }
+            let depth = item.isFolder ? parts.count : parts.count - 1
+            if depth > 0 { for level in 1...depth { folders.insert(parts.prefix(level).joined(separator: "/")) } }
+            if !item.isFolder {
+                result.files += 1
+                result.bytes += item.size
+            }
+        }
+        result.folders = folders.count
+        return result
+    }
+    static func shareMeasure(_ server: Share, _ path: String) async throws -> Files.Measure {
+        var result = Files.Measure()
+        var pending = [path]
+        while let next = pending.popLast() {
+            try Task.checkCancellation()
+            for child in try await server.entries(next) {
+                if child.isFolder {
+                    result.folders += 1
+                    pending.append(server.child(next, child.name))
+                } else {
+                    result.files += 1
+                    result.bytes += child.bytes ?? 0
+                }
+            }
+        }
+        return result
     }
 
     static func fileSections(_ url: URL, place: String) async throws -> [InfoSection] {

@@ -2,35 +2,42 @@ import Foundation
 import LibArchive
 
 enum ArchiveTools {
-    static func extract(_ archive: URL) throws {
-        let scratch = try Files.workspace()
-        defer { try? Files.fm.removeItem(at: scratch) }
-        let output = scratch.appendingPathComponent(archive.lastPathComponent + " - extracted")
+    // Extracts into a hidden folder next to the archive, then names it "<archive> - extracted"
+    // (with a number added if that name is taken). Nothing goes through a temporary copy.
+    @discardableResult
+    static func extract(_ archive: URL) throws -> URL {
+        let folder = archive.deletingLastPathComponent()
+        let staging = try Files.staging(in: folder)
+        defer { try? Files.fm.removeItem(at: staging) }
+        let base = archive.lastPathComponent + " - extracted"
+        let output = staging.appendingPathComponent(try safeName(base))
         try Files.read(archive) { input in
             let reader = ArchiveReader()
             let entries = try reader.entries(at: input)
             var seen = Set<String>()
             var total: Int64 = 0
-            let free = try scratch.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity
+            let free = try folder.resourceValues(forKeys: [.volumeAvailableCapacityKey]).volumeAvailableCapacity
             for entry in entries {
-                guard (entry.fileType == .regular || entry.fileType == .directory),
+                // "./" names the archive's own top folder, not an item.
+                if entry.fileType == .directory && (entry.path == "." || entry.path.replacingOccurrences(of: "./", with: "").isEmpty) { continue }
+                guard entry.fileType == .regular || entry.fileType == .directory,
                       entry.hardlinkTarget == nil, entry.symlinkTarget == nil,
                       !entry.isDataEncrypted, !entry.isMetadataEncrypted else {
                     throw ExplorerError("This archive contains an encrypted item, link or unsupported file type.")
                 }
-                let parts = entry.path.split(separator: "/")
-                guard !entry.path.hasPrefix("/"), !parts.isEmpty,
-                      parts.allSatisfy({ (try? safeName(String($0))) != nil }),
-                      seen.insert(parts.joined(separator: "/").precomposedStringWithCanonicalMapping.lowercased()).inserted
+                guard let path = normalized(entry.path),
+                      seen.insert(path.precomposedStringWithCanonicalMapping.lowercased()).inserted
                 else { throw ExplorerError("The archive contains conflicting or unsupported paths.") }
                 let sum = total.addingReportingOverflow(entry.size)
                 guard entry.size >= 0, !sum.overflow, free.map({ sum.partialValue < Int64($0) }) ?? true
-                else { throw ExplorerError("There is insufficient temporary space to extract this archive.") }
+                else { throw ExplorerError("There is not enough free space to extract this archive.") }
                 total = sum.partialValue
             }
             try reader.extract(input, to: output, options: [.noOverwrite, .preserveModificationTime, .safeWrites])
         }
-        try Files.publish(output, into: archive.deletingLastPathComponent())
+        let name = Files.uniqueName(base, isFolder: true) { Files.fm.fileExists(atPath: folder.appendingPathComponent($0).path) }
+        try Files.publish(output, into: folder, as: name, replacing: false)
+        return folder.appendingPathComponent(name)
     }
 }
 
@@ -121,7 +128,7 @@ extension ArchiveTools {
     }
 
     // Unpacks one file, or one folder with everything inside it, without extracting the rest.
-    static func unpack(_ entry: Entry, from ref: ArchiveRef, into folder: URL) throws -> URL {
+    static func unpack(_ entry: Entry, from ref: ArchiveRef, into folder: URL, meter: TransferMeter? = nil) throws -> URL {
         let items = try ref.items()
         let target = folder.appendingPathComponent(try safeName(entry.name))
         let files: [(ArchiveItem, URL)]
@@ -159,8 +166,10 @@ extension ArchiveTools {
                     defer { try? handle.close() }
                     try reader.readDataBlocks(forEntryPath: item.rawPath, in: archive) { block in
                         guard block.offset >= 0 else { throw ExplorerError("The archive is damaged.") }
+                        try meter?.check()
                         try handle.seek(toOffset: UInt64(block.offset))
                         try handle.write(contentsOf: block.data)
+                        meter?.add(Int64(block.data.count))
                     }
                 }
             }
