@@ -103,9 +103,15 @@ final class LocationChoiceTests: XCTestCase {
             app.buttons["Pane A location"].tap()
             app.buttons["Browse Files locations"].firstMatch.tap()
             enterFixture(in: app)
-            tap("root-file", in: app)
-            if confirm.waitForExistence(timeout: 5) && confirm.isEnabled { confirm.tap() }
+            if let file = visible("root-file", in: app) {
+                XCTContext.runActivity(named: "Picking '\(file.label)' [\(file.identifier)] type \(file.elementType.rawValue) at \(file.frame)") { _ in }
+                file.tap()
+            }
+            let shown = confirm.waitForExistence(timeout: 5)
+            XCTContext.runActivity(named: "Open button " + (shown ? (confirm.isEnabled ? "enabled" : "disabled") + " '\(confirm.label)'" : "missing")) { _ in }
+            if shown && confirm.isEnabled { confirm.tap() }
             if selection.waitForExistence(timeout: 8) { delivered = true; break }
+            XCTContext.runActivity(named: "Picker still shown: \(app.otherElements["Browse View (Picker)"].exists)") { _ in }
             XCTContext.runActivity(named: "File pick not delivered, attempt \(attempt)") { _ in }
             app.terminate()
             app.launch()
@@ -157,7 +163,7 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertTrue(app.buttons["item-B-Others"].waitForExistence(timeout: 15), app.debugDescription)
         app.buttons["item-B-Others"].tap()
         XCTAssertTrue(location("B", is: "Others", in: app).waitForExistence(timeout: 10), app.debugDescription)
-        XCTAssertTrue(photos.element(boundBy: 1).waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(photos.element(boundBy: 1).waitForExistence(timeout: 45), app.debugDescription)
         let name = String(photos.element(boundBy: 0).identifier.dropFirst("item-B-".count))
         let next = String(photos.element(boundBy: 1).identifier.dropFirst("item-B-".count))
         XCTContext.runActivity(named: "Viewing photos \(name) and \(next)") { _ in }

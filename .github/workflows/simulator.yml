@@ -24,7 +24,7 @@ jobs:
             -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO || status=$?
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
             --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' \
-            | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone' || true
+            | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone|Picking|Open button|Picker still|Step:' || true
           [ "$status" -eq 0 ] || exit "$status"
           xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 41, result'
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
