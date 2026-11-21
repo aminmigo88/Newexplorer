@@ -296,6 +296,10 @@ extension TransferTests {
     func testPhotoFoldersRoundTripAndLeadBackToTheList() {
         func row(_ id: String, _ name: String) -> Entry { Entry(id: id, name: name, isFolder: true, bytes: nil, date: nil) }
         XCTAssertEqual(PhotoFolder(entry: row("photos:screenshots", "Screenshots")), .screenshots)
+        XCTAssertEqual(PhotoFolder(entry: row("photos:others", "Others")), .others)
+        XCTAssertEqual(PhotoFolder.others.title, "Others")
+        XCTAssertEqual(PhotosAccess.itemCount(1), "1 item")
+        XCTAssertEqual(PhotosAccess.itemCount(12), "12 items")
         XCTAssertEqual(PhotoFolder(entry: row("photos:album:AB12/L0/040", "WhatsApp")), .album(id: "AB12/L0/040", name: "WhatsApp"))
         XCTAssertNil(PhotoFolder(entry: row("IMG_0001", "IMG_0001.JPG")))
         XCTAssertEqual(PhotoFolder.album(id: "AB12/L0/040", name: "WhatsApp").id, "photos:album:AB12/L0/040")

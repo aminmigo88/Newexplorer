@@ -137,16 +137,26 @@ final class LocationChoiceTests: XCTestCase {
 
         // Photos opens to its folders.
         XCTAssertTrue(location("B", is: "Photos", in: app).waitForExistence(timeout: 10), app.debugDescription)
-        for folder in ["All", "Pictures", "Videos", "Screenshots"] {
+        for folder in ["All", "Pictures", "Videos", "Screenshots", "Others"] {
             XCTAssertTrue(app.buttons["item-B-" + folder].waitForExistence(timeout: 15), app.debugDescription)
         }
+        let photos = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "item-B-"))
+        // The fixture images have no camera data, so they are in Others and not in Pictures.
         app.buttons["item-B-Pictures"].tap()
         XCTAssertTrue(location("B", is: "Pictures", in: app).waitForExistence(timeout: 10), app.debugDescription)
-        let photos = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "item-B-"))
+        let emptyPictures = app.staticTexts["No photos or videos are available to Newexplorer."]
+        _ = photos.firstMatch.waitForExistence(timeout: 10) || emptyPictures.waitForExistence(timeout: 2)
+        let inPictures = Set(photos.allElementsBoundByIndex.map(\.identifier))
+        app.buttons.matching(NSPredicate(format: "label == %@", "Parent folder")).element(boundBy: 1).tap()
+        XCTAssertTrue(app.buttons["item-B-Others"].waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["item-B-Others"].tap()
+        XCTAssertTrue(location("B", is: "Others", in: app).waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(photos.element(boundBy: 1).waitForExistence(timeout: 15), app.debugDescription)
         let name = String(photos.element(boundBy: 0).identifier.dropFirst("item-B-".count))
         let next = String(photos.element(boundBy: 1).identifier.dropFirst("item-B-".count))
         XCTContext.runActivity(named: "Viewing photos \(name) and \(next)") { _ in }
+        XCTAssertFalse(inPictures.contains("item-B-" + name), "\(inPictures)")
+        XCTAssertFalse(inPictures.contains("item-B-" + next), "\(inPictures)")
 
         // The viewer swipes to the next photo and back.
         photos.element(boundBy: 0).tap()

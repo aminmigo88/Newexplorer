@@ -11,6 +11,7 @@ final class Pane: ObservableObject {
     @Published var busy = false
     @Published var message: String?
     @Published var photoLimit = 150
+    @Published var loadingMore = false
     private var generation = UUID()
     private let savedFolderKey: String
     private var restoreKey: String { savedFolderKey + ".active" }
@@ -121,6 +122,34 @@ final class Pane: ObservableObject {
         photoLimit = 150
         await refresh()
     }
+    // Adds the next photos below the ones shown, so the list keeps its place.
+    func loadMorePhotos() async {
+        guard case let .photos(folder?) = location, !loadingMore, !busy else { return }
+        loadingMore = true
+        defer { loadingMore = false }
+        let ticket = generation
+        do {
+            let result = try await PhotosAccess.list(folder, limit: photoLimit + 150)
+            guard generation == ticket else { return }
+            photoLimit += 150
+            rows = result
+        } catch {
+            if generation == ticket { info = "Couldn’t load more photos. \(error.localizedDescription)" }
+        }
+    }
+    // Pictures and Others need a look at every image, so their counts arrive after the list.
+    private func countPhotoFolders(_ ticket: UUID) {
+        Task {
+            let counts = await PhotosAccess.splitCounts()
+            guard generation == ticket, case .photos(nil) = location else { return }
+            rows = rows.map { row in
+                var row = row
+                if row.id == PhotoFolder.pictures.id { row.note = PhotosAccess.itemCount(counts.pictures) }
+                if row.id == PhotoFolder.others.id { row.note = PhotosAccess.itemCount(counts.others) }
+                return row
+            }
+        }
+    }
     func refresh() async {
         let ticket = UUID()
         generation = ticket
@@ -136,6 +165,7 @@ final class Pane: ObservableObject {
                 else { result = try await PhotosAccess.folders() }
             } else { result = try await Directory.list(location) }
             if generation == ticket { rows = result }
+            if case .photos(nil) = location, generation == ticket { countPhotoFolders(ticket) }
         } catch {
             if generation == ticket { message = "Couldn’t open \(location.title). \(error.localizedDescription)" }
         }
@@ -529,7 +559,12 @@ struct PaneView: View {
                         }
                     }
                     if case .photos(.some) = pane.location, pane.rows.count >= pane.photoLimit {
-                        Button("Show more photos") { pane.photoLimit += 150; Task { await pane.refresh() } }
+                        Button { Task { await pane.loadMorePhotos() } } label: {
+                            HStack {
+                                Text("Show more photos")
+                                if pane.loadingMore { Spacer(); ProgressView() }
+                            }
+                        }.disabled(pane.loadingMore).accessibilityIdentifier("show-more-" + label)
                     }
                 }.listStyle(.plain)
             }

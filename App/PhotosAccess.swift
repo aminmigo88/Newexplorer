@@ -2,8 +2,9 @@ import Photos
 import UniformTypeIdentifiers
 
 // The folders Photos is split into: fixed kinds first, then each album by its name.
+// Pictures holds camera shots; Others holds every other image, such as saved or downloaded ones.
 enum PhotoFolder: Hashable {
-    case all, pictures, videos, screenshots
+    case all, pictures, videos, screenshots, others
     case album(id: String, name: String)
 
     var title: String {
@@ -12,6 +13,7 @@ enum PhotoFolder: Hashable {
         case .pictures: return "Pictures"
         case .videos: return "Videos"
         case .screenshots: return "Screenshots"
+        case .others: return "Others"
         case let .album(_, name): return name
         }
     }
@@ -21,6 +23,7 @@ enum PhotoFolder: Hashable {
         case .pictures: return "photos:pictures"
         case .videos: return "photos:videos"
         case .screenshots: return "photos:screenshots"
+        case .others: return "photos:others"
         case let .album(id, _): return "photos:album:" + id
         }
     }
@@ -30,6 +33,7 @@ enum PhotoFolder: Hashable {
         case "photos:pictures": self = .pictures
         case "photos:videos": self = .videos
         case "photos:screenshots": self = .screenshots
+        case "photos:others": self = .others
         default:
             guard entry.id.hasPrefix("photos:album:") else { return nil }
             self = .album(id: String(entry.id.dropFirst("photos:album:".count)), name: entry.name)
@@ -48,16 +52,15 @@ enum PhotosAccess {
     static func folders() async throws -> [Entry] {
         try await authorize()
         return await Task.detached {
-            let images = PHAsset.fetchAssets(with: .image, options: nil).count
             let shots = screenshotAlbum().map { PHAsset.fetchAssets(in: $0, options: nil).count } ?? 0
-            func row(_ folder: PhotoFolder, _ count: Int) -> Entry {
-                Entry(id: folder.id, name: folder.title, isFolder: true, bytes: nil, date: nil,
-                      note: count == 1 ? "1 item" : "\(count) items")
+            func row(_ folder: PhotoFolder, _ count: Int?) -> Entry {
+                Entry(id: folder.id, name: folder.title, isFolder: true, bytes: nil, date: nil, note: count.map(itemCount))
             }
             var rows = [row(.all, PHAsset.fetchAssets(with: nil).count),
-                        row(.pictures, max(images - shots, 0)),
+                        row(.pictures, nil),
                         row(.videos, PHAsset.fetchAssets(with: .video, options: nil).count),
-                        row(.screenshots, shots)]
+                        row(.screenshots, shots),
+                        row(.others, nil)]
             var albums: [Entry] = []
             PHAssetCollection.fetchAssetCollections(with: .album, subtype: .albumRegular, options: nil).enumerateObjects { album, _, _ in
                 let name = album.localizedTitle ?? "Album"
@@ -68,13 +71,50 @@ enum PhotosAccess {
         }.value
     }
 
+    static func itemCount(_ count: Int) -> String { count == 1 ? "1 item" : "\(count) items" }
+
+    // Counts for Pictures and Others, which the folder list shows once they are ready.
+    static func splitCounts() async -> (pictures: Int, others: Int) {
+        await Task.detached {
+            let shots = screenshotIDs()
+            var pictures = 0, others = 0
+            PHAsset.fetchAssets(with: .image, options: nil).enumerateObjects { asset, _, _ in
+                if isScreenshot(asset, in: shots) { return }
+                if isCameraShot(asset) { pictures += 1 } else { others += 1 }
+            }
+            return (pictures, others)
+        }.value
+    }
+
+    // Camera shots carry what the Camera app records: a location, a capture style
+    // (Live, HDR, Portrait, Panorama or burst), or the camera's HEIC or RAW format.
+    // Apps can't read which app saved an image, so everything else counts as Others.
+    static func isCameraShot(_ asset: PHAsset) -> Bool {
+        if asset.location != nil || asset.burstIdentifier != nil { return true }
+        let styles: PHAssetMediaSubtype = [.photoLive, .photoHDR, .photoDepthEffect, .photoPanorama]
+        if !asset.mediaSubtypes.isDisjoint(with: styles) { return true }
+        guard let photo = PHAssetResource.assetResources(for: asset).first(where: { $0.type == .photo }),
+              let type = UTType(photo.uniformTypeIdentifier) else { return false }
+        return type.conforms(to: .heic) || type.conforms(to: .heif) || type.conforms(to: .rawImage)
+    }
+    // Uses the same list as the Screenshots folder, plus the screenshot marker.
+    private static func isScreenshot(_ asset: PHAsset, in shots: Set<String>) -> Bool {
+        asset.mediaSubtypes.contains(.photoScreenshot) || shots.contains(asset.localIdentifier)
+    }
+    private static func screenshotIDs() -> Set<String> {
+        guard let album = screenshotAlbum() else { return [] }
+        var ids = Set<String>()
+        PHAsset.fetchAssets(in: album, options: nil).enumerateObjects { asset, _, _ in ids.insert(asset.localIdentifier) }
+        return ids
+    }
+
     static func list(_ folder: PhotoFolder, limit: Int = 150) async throws -> [Entry] {
         try await authorize()
         return await Task.detached {
             let options = PHFetchOptions()
             options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
             let assets: PHFetchResult<PHAsset>
-            var skipScreenshots = false
+            var keep: ((PHAsset) -> Bool)?
             switch folder {
             case .all:
                 options.fetchLimit = limit
@@ -82,9 +122,11 @@ enum PhotosAccess {
             case .videos:
                 options.fetchLimit = limit
                 assets = PHAsset.fetchAssets(with: .video, options: options)
-            case .pictures:
-                // Screenshots are left out while listing, so no fetch limit here.
-                skipScreenshots = true
+            case .pictures, .others:
+                // Sorted while listing, so no fetch limit here.
+                let shots = screenshotIDs()
+                let camera = folder == .pictures
+                keep = { !isScreenshot($0, in: shots) && isCameraShot($0) == camera }
                 assets = PHAsset.fetchAssets(with: .image, options: options)
             case .screenshots:
                 options.fetchLimit = limit
@@ -97,7 +139,7 @@ enum PhotosAccess {
             }
             var entries: [Entry] = []
             assets.enumerateObjects { asset, _, stop in
-                if skipScreenshots && asset.mediaSubtypes.contains(.photoScreenshot) { return }
+                if let keep, !keep(asset) { return }
                 if let main = originals(asset).first {
                     entries.append(Entry(id: asset.localIdentifier, name: main.originalFilename,
                                          isFolder: false, bytes: nil, date: asset.creationDate, isPhoto: true))
