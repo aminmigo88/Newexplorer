@@ -88,8 +88,11 @@ enum Location {
     case folder(FolderGrant, URL)
     case selectedFiles([FolderGrant])
     case share(Share, String)
-    case photos
+    // nil lists the Photos folders; a folder lists its photos and videos.
+    case photos(PhotoFolder?)
     case place(Place)
+    // An archive browsed like a folder; the string is the folder path inside it.
+    case archive(ArchiveRef, String)
 
     static func local(_ url: URL) -> Location { .folder(FolderGrant(url), url) }
     static var documents: URL { FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0] }
@@ -105,9 +108,10 @@ enum Location {
             if let title = grant.title, url.standardizedFileURL.path == grant.url.standardizedFileURL.path { return title }
             return url.lastPathComponent
         case let .share(server, path): return path == "/" ? server.name : (path as NSString).lastPathComponent
-        case .photos: return "Photos"
+        case let .photos(folder): return folder?.title ?? "Photos"
         case .selectedFiles: return "Selected files"
         case let .place(place): return place.title
+        case let .archive(ref, inner): return inner.isEmpty ? ref.name : (inner as NSString).lastPathComponent
         }
     }
     var symbol: String {
@@ -117,6 +121,7 @@ enum Location {
         case .photos: return "photo.on.rectangle"
         case .selectedFiles: return "doc.on.doc"
         case let .place(place): return place.symbol
+        case .archive: return "archivebox"
         }
     }
     // Folders opened from On My iPhone or iCloud Drive lead back up to that list.
@@ -130,13 +135,22 @@ enum Location {
             return .folder(grant, up)
         case let .share(server, path):
             return path == "/" ? nil : .share(server, (path as NSString).deletingLastPathComponent)
-        case .photos, .selectedFiles, .place: return nil
+        case let .photos(folder): return folder == nil ? nil : .photos(nil)
+        case let .archive(ref, inner):
+            return inner.isEmpty ? ref.parent : .archive(ref, (inner as NSString).deletingLastPathComponent)
+        case .selectedFiles, .place: return nil
         }
+    }
+    // The folder, place or selection an archive was opened from.
+    var base: Location {
+        if case let .archive(ref, _) = self { return ref.parent.base }
+        return self
     }
     func subdirectory(_ name: String) -> Location {
         switch self {
         case let .folder(grant, url): return .folder(grant, url.appendingPathComponent(name))
         case let .share(server, path): return .share(server, server.child(path, name))
+        case let .archive(ref, inner): return .archive(ref, inner.isEmpty ? name : inner + "/" + name)
         case .photos, .selectedFiles, .place: return self
         }
     }
@@ -146,6 +160,10 @@ enum Location {
     }
     var isPlace: Bool {
         if case .place = self { return true }
+        return false
+    }
+    var isArchive: Bool {
+        if case .archive = self { return true }
         return false
     }
     func fileURL(for row: Entry) -> URL? {
@@ -209,7 +227,11 @@ enum Directory {
                 Entry(id: grant.url.absoluteString, name: grant.url.lastPathComponent, isFolder: false, bytes: nil, date: nil)
             }
         case let .place(place): items = try await Places.shared.entries(for: place)
-        case .photos: return try await PhotosAccess.list()
+        case let .photos(folder):
+            if let folder { return try await PhotosAccess.list(folder) }
+            return try await PhotosAccess.folders()
+        case let .archive(ref, inner):
+            items = try await Task.detached { ArchiveTools.children(of: inner, in: try ref.items()) }.value
         }
         return items.sorted {
             if $0.isFolder != $1.isFolder { return $0.isFolder }
@@ -286,7 +308,7 @@ struct ListOrder: Equatable {
 enum SendRule {
     @MainActor static func allows(_ destination: Location, sourceFolder: URL?) -> Bool {
         switch destination {
-        case .photos, .selectedFiles: return false
+        case .photos, .selectedFiles, .archive: return false
         case .share: return true
         case let .place(place):
             guard place != .iCloudDrive, let root = Places.shared.root(place) else { return false }

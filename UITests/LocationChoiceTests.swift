@@ -109,8 +109,8 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)
     }
 
-    func testPhotoOpensInTheViewerAndSendsToTheOtherPane() throws {
-        try XCTSkipUnless(ProcessInfo.processInfo.environment["FILES_FIXTURE"] == "1", "Requires the simulator fixture photo")
+    func testPhotoFoldersViewerSwipeInfoSendAndArchives() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["FILES_FIXTURE"] == "1", "Requires the simulator fixture photos")
         continueAfterFailure = false
         let app = XCUIApplication()
         app.resetAuthorizationStatus(for: .photos)
@@ -125,8 +125,7 @@ final class LocationChoiceTests: XCTestCase {
             paneA.tap()
             app.buttons["App files"].firstMatch.tap()
         }
-        let appFiles = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane A location", "App files")).firstMatch
-        XCTAssertTrue(appFiles.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(location("A", is: "App files", in: app).waitForExistence(timeout: 10), app.debugDescription)
         let photosChoice = app.buttons["open-photos-B"]
         if !photosChoice.exists { paneB.tap() }
         photosChoice.firstMatch.tap()
@@ -135,15 +134,36 @@ final class LocationChoiceTests: XCTestCase {
         let allow = alert.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Full Access", "All Photos")).firstMatch
         XCTAssertTrue(allow.exists, alert.debugDescription)
         allow.tap()
-        let photosShown = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane B location", "Photos")).firstMatch
-        XCTAssertTrue(photosShown.waitForExistence(timeout: 10), app.debugDescription)
-        let photo = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "item-B-")).firstMatch
-        XCTAssertTrue(photo.waitForExistence(timeout: 15), app.debugDescription)
-        let name = String(photo.identifier.dropFirst("item-B-".count))
-        XCTContext.runActivity(named: "Viewing photo \(name)") { _ in }
 
-        // Tapping a photo opens the viewer; Send copies it into pane A.
-        photo.tap()
+        // Photos opens to its folders.
+        XCTAssertTrue(location("B", is: "Photos", in: app).waitForExistence(timeout: 10), app.debugDescription)
+        for folder in ["All", "Pictures", "Videos", "Screenshots"] {
+            XCTAssertTrue(app.buttons["item-B-" + folder].waitForExistence(timeout: 15), app.debugDescription)
+        }
+        app.buttons["item-B-Pictures"].tap()
+        XCTAssertTrue(location("B", is: "Pictures", in: app).waitForExistence(timeout: 10), app.debugDescription)
+        let photos = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "item-B-"))
+        XCTAssertTrue(photos.element(boundBy: 1).waitForExistence(timeout: 15), app.debugDescription)
+        let name = String(photos.element(boundBy: 0).identifier.dropFirst("item-B-".count))
+        let next = String(photos.element(boundBy: 1).identifier.dropFirst("item-B-".count))
+        XCTContext.runActivity(named: "Viewing photos \(name) and \(next)") { _ in }
+
+        // The viewer swipes to the next photo and back.
+        photos.element(boundBy: 0).tap()
+        XCTAssertTrue(app.navigationBars.staticTexts[name].waitForExistence(timeout: 15), app.debugDescription)
+        app.swipeLeft()
+        XCTAssertTrue(app.navigationBars.staticTexts[next].waitForExistence(timeout: 10), app.debugDescription)
+        app.swipeRight()
+        XCTAssertTrue(app.navigationBars.staticTexts[name].waitForExistence(timeout: 10), app.debugDescription)
+
+        // Info shows the file and image data.
+        app.buttons["viewer-info"].tap()
+        XCTAssertTrue(app.staticTexts["Dimensions"].waitForExistence(timeout: 15), app.debugDescription)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", " × ")).firstMatch.exists, app.debugDescription)
+        XCTAssertTrue(app.staticTexts["Size"].exists, app.debugDescription)
+        app.buttons["info-done"].tap()
+
+        // Send copies the photo into pane A.
         let send = app.buttons["viewer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 15), app.debugDescription)
         XCTAssertTrue(send.label.contains("Send to A"), send.label)
@@ -162,6 +182,24 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertFalse(app.buttons["viewer-send"].exists, app.debugDescription)
         app.buttons["viewer-close"].tap()
 
+        // A ZIP opens like a folder; a file inside opens in the viewer; up leaves the archive.
+        XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
+        copied.press(forDuration: 1.2)
+        let createZip = app.buttons["Create ZIP"]
+        XCTAssertTrue(createZip.waitForExistence(timeout: 5), app.debugDescription)
+        createZip.tap()
+        let zip = app.buttons["item-A-" + name + ".zip"]
+        XCTAssertTrue(zip.waitForExistence(timeout: 15), app.debugDescription)
+        zip.tap()
+        XCTAssertTrue(location("A", is: name + ".zip", in: app).waitForExistence(timeout: 10), app.debugDescription)
+        let packed = app.buttons["item-A-" + name]
+        XCTAssertTrue(packed.waitForExistence(timeout: 10), app.debugDescription)
+        packed.tap()
+        XCTAssertTrue(app.navigationBars.staticTexts[name].waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["viewer-close"].tap()
+        app.buttons.matching(NSPredicate(format: "label == %@", "Parent folder")).element(boundBy: 0).tap()
+        XCTAssertTrue(location("A", is: "App files", in: app).waitForExistence(timeout: 10), app.debugDescription)
+
         // Selection starts off; the switch shows the circles and a tap then ticks the row.
         XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(app.buttons["Select \(name)"].exists)
@@ -173,6 +211,10 @@ final class LocationChoiceTests: XCTestCase {
         app.buttons["select-mode-A"].tap()
         XCTAssertFalse(app.buttons["Select \(name)"].exists)
         XCTAssertFalse(copyOne.exists)
+    }
+
+    private func location(_ pane: String, is title: String, in app: XCUIApplication) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane \(pane) location", title)).firstMatch
     }
 
     // Waits until a pane's location stops changing, such as a saved folder reopening on launch.

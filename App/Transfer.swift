@@ -33,7 +33,10 @@ enum Transfer {
             try await download(entry, server: server, from: path, to: item)
             prepared = item
         case .photos:
+            guard !entry.isFolder else { throw ExplorerError("Open the Photos folder and select the items to copy.") }
             prepared = try await PhotosAccess.export(entry, into: temporary)
+        case let .archive(ref, _):
+            prepared = try await Task.detached { try ArchiveTools.unpack(entry, from: ref, into: temporary) }.value
         }
         return prepared
     }
@@ -61,8 +64,10 @@ enum Transfer {
                 try? await server.client.removeItem(atPath: staging)
                 throw error
             }
-        case .photos:
-            try await PhotosAccess.importFile(prepared)
+        case let .photos(folder):
+            try await PhotosAccess.importFile(prepared, into: folder)
+        case .archive:
+            throw ExplorerError("Archives are read-only. Paste into a folder instead.")
         }
     }
 

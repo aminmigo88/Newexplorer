@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 @testable import Newexplorer
 
 final class TransferTests: XCTestCase {
@@ -211,7 +212,8 @@ extension TransferTests {
         XCTAssertTrue(SendRule.allows(.local(base), sourceFolder: nil))
         XCTAssertTrue(SendRule.allows(.local(base), sourceFolder: other))
         XCTAssertFalse(SendRule.allows(.local(base), sourceFolder: base))
-        XCTAssertFalse(SendRule.allows(.photos, sourceFolder: nil))
+        XCTAssertFalse(SendRule.allows(.photos(nil), sourceFolder: nil))
+        XCTAssertFalse(SendRule.allows(.photos(.videos), sourceFolder: nil))
         XCTAssertFalse(SendRule.allows(.selectedFiles([]), sourceFolder: nil))
         XCTAssertFalse(SendRule.allows(.place(.iCloudDrive), sourceFolder: nil))
         let cloud = URL(fileURLWithPath: "/private/var/mobile/Library/Mobile Documents/com~apple~CloudDocs/Docs")
@@ -224,5 +226,119 @@ extension TransferTests {
         XCTAssertEqual(PhotosAccess.exportName(original: "IMG_1234.HEIC", render: "FullSizeRender.jpg"), "IMG_1234.JPG")
         XCTAssertEqual(PhotosAccess.exportName(original: "IMG_1234.HEIC", render: "FullSizeRender.heic"), "IMG_1234.HEIC")
         XCTAssertEqual(PhotosAccess.exportName(original: "clip.mp4", render: "FullSizeRender.mov"), "clip.mov")
+    }
+
+    func testArchiveBrowsesLikeAFolderAndUnpacksOnlyWhatIsAsked() async throws {
+        let base = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: base) }
+        let docs = base.appendingPathComponent("Docs")
+        try Files.fm.createDirectory(at: docs.appendingPathComponent("Sub"), withIntermediateDirectories: true)
+        try Data("inner".utf8).write(to: docs.appendingPathComponent("inner.txt"))
+        try Data("deep".utf8).write(to: docs.appendingPathComponent("Sub/deep.txt"))
+        try Files.zip(docs)
+        let ref = ArchiveRef(url: base.appendingPathComponent("Docs.zip"), parent: .local(base))
+
+        let top = try await Directory.list(.archive(ref, ""))
+        XCTAssertEqual(top.map(\.name), ["Docs"])
+        XCTAssertEqual(top.first?.isFolder, true)
+        let inside = try await Directory.list(.archive(ref, "Docs"))
+        XCTAssertEqual(inside.map(\.name), ["Sub", "inner.txt"])
+        let inner = try XCTUnwrap(inside.first { $0.name == "inner.txt" })
+        XCTAssertEqual(inner.bytes, 5)
+
+        // One file unpacks on its own.
+        let scratch = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: scratch) }
+        let unpacked = try ArchiveTools.unpack(inner, from: ref, into: scratch)
+        XCTAssertEqual(try String(contentsOf: unpacked, encoding: .utf8), "inner")
+
+        // Copying a folder out of the archive brings what is inside it.
+        let out = base.appendingPathComponent("Out")
+        try Files.fm.createDirectory(at: out, withIntermediateDirectories: false)
+        try await Transfer.copy(try XCTUnwrap(inside.first { $0.name == "Sub" }), from: .archive(ref, "Docs"), to: .local(out))
+        XCTAssertEqual(try String(contentsOf: out.appendingPathComponent("Sub/deep.txt"), encoding: .utf8), "deep")
+        XCTAssertFalse(Files.fm.fileExists(atPath: out.appendingPathComponent("inner.txt").path))
+
+        // Archives are read-only, and going up leaves the archive.
+        do {
+            try await FileActions.perform(.createFolder("New"), at: .archive(ref, ""))
+            XCTFail("An archive accepted a new folder.")
+        } catch {}
+        do {
+            try await Transfer.copy(inner, from: .archive(ref, "Docs"), to: .archive(ref, ""))
+            XCTFail("An archive accepted a paste.")
+        } catch {}
+        XCTAssertEqual(Location.archive(ref, "Docs/Sub").parent?.title, "Docs")
+        XCTAssertEqual(Location.archive(ref, "Docs").parent?.title, "Docs.zip")
+        XCTAssertEqual(Location.archive(ref, "").parent?.title, base.lastPathComponent)
+    }
+
+    func testArchivePathsAndImplicitFolders() {
+        XCTAssertEqual(ArchiveTools.normalized("./a/b/"), "a/b")
+        XCTAssertNil(ArchiveTools.normalized("/etc/passwd"))
+        XCTAssertNil(ArchiveTools.normalized("a/../b"))
+        XCTAssertNil(ArchiveTools.normalized("a//b"))
+        XCTAssertTrue(ArchiveTools.isBrowsable("Pack.ZIP"))
+        XCTAssertTrue(ArchiveTools.isBrowsable("backup.tar.gz"))
+        XCTAssertTrue(ArchiveTools.isBrowsable("song.rar"))
+        XCTAssertFalse(ArchiveTools.isBrowsable("archive.7z"))
+        XCTAssertFalse(ArchiveTools.isBrowsable("notes.gz"))
+        let items = [ArchiveItem(rawPath: "x/y/z.txt", path: "x/y/z.txt", isFolder: false, size: 3, date: nil, encrypted: false),
+                     ArchiveItem(rawPath: "top.txt", path: "top.txt", isFolder: false, size: 1, date: nil, encrypted: true)]
+        let root = ArchiveTools.children(of: "", in: items)
+        XCTAssertEqual(Set(root.map(\.name)), ["x", "top.txt"])
+        XCTAssertEqual(root.first { $0.name == "x" }?.isFolder, true)
+        XCTAssertEqual(root.first { $0.name == "top.txt" }?.note, "Password-protected")
+        XCTAssertEqual(ArchiveTools.children(of: "x", in: items).map(\.name), ["y"])
+        XCTAssertEqual(ArchiveTools.children(of: "x/y", in: items).map(\.id), ["x/y/z.txt"])
+    }
+
+    func testPhotoFoldersRoundTripAndLeadBackToTheList() {
+        func row(_ id: String, _ name: String) -> Entry { Entry(id: id, name: name, isFolder: true, bytes: nil, date: nil) }
+        XCTAssertEqual(PhotoFolder(entry: row("photos:screenshots", "Screenshots")), .screenshots)
+        XCTAssertEqual(PhotoFolder(entry: row("photos:album:AB12/L0/040", "WhatsApp")), .album(id: "AB12/L0/040", name: "WhatsApp"))
+        XCTAssertNil(PhotoFolder(entry: row("IMG_0001", "IMG_0001.JPG")))
+        XCTAssertEqual(PhotoFolder.album(id: "AB12/L0/040", name: "WhatsApp").id, "photos:album:AB12/L0/040")
+        XCTAssertEqual(Location.photos(.album(id: "A", name: "WhatsApp")).title, "WhatsApp")
+        XCTAssertEqual(Location.photos(.videos).parent?.title, "Photos")
+        XCTAssertNil(Location.photos(nil).parent)
+    }
+
+    func testInfoFormatsCameraData() throws {
+        XCTAssertEqual(MediaInfo.shutter(1.0 / 120), "1/120 s")
+        XCTAssertEqual(MediaInfo.shutter(2), "2 s")
+        XCTAssertEqual(MediaInfo.aperture(1.78), "ƒ/1.8")
+        XCTAssertEqual(MediaInfo.aperture(2), "ƒ/2")
+        XCTAssertEqual(MediaInfo.focalLength(6.86, equivalent: 24), "6.9 mm (24 mm equivalent)")
+        XCTAssertEqual(MediaInfo.coordinates(36.806667, 10.18153), "36.80667° N, 10.18153° E")
+        XCTAssertEqual(MediaInfo.coordinates(-33.8688, -70.6), "33.86880° S, 70.60000° W")
+        XCTAssertEqual(MediaInfo.camera(make: "Apple", model: "iPhone 17 Pro Max"), "Apple iPhone 17 Pro Max")
+        XCTAssertEqual(MediaInfo.camera(make: "Canon", model: "Canon EOS R5"), "Canon EOS R5")
+        XCTAssertEqual(MediaInfo.duration(83), "1:23")
+        XCTAssertEqual(MediaInfo.duration(3723), "1:02:03")
+        XCTAssertEqual(MediaInfo.size(512), "512 bytes")
+        XCTAssertEqual(MediaInfo.dimensions(4032, 3024), "4032 × 3024")
+        XCTAssertNil(MediaInfo.dimensions(nil, 3024))
+        XCTAssertEqual(MediaInfo.rows([("A", "1"), ("B", nil), ("C", "")]).map(\.label), ["A"])
+    }
+
+    func testInfoReadsImageFiles() async throws {
+        let base = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: base) }
+        let file = base.appendingPathComponent("dot.png")
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 3, height: 2), format: {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            return format
+        }()).image { context in
+            UIColor.orange.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 3, height: 2))
+        }
+        try XCTUnwrap(image.pngData()).write(to: file)
+        let sections = try await MediaInfo.fileSections(file, place: "Test")
+        XCTAssertEqual(sections.map(\.title), ["File", "Image"])
+        XCTAssertEqual(sections[0].rows.first { $0.label == "Name" }?.value, "dot.png")
+        XCTAssertEqual(sections[0].rows.first { $0.label == "Where" }?.value, "Test")
+        XCTAssertEqual(sections[1].rows.first { $0.label == "Dimensions" }?.value, "3 × 2")
     }
 }

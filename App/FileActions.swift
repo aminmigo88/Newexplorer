@@ -60,8 +60,12 @@ enum FileActions {
             case let .delete(entries):
                 for entry in entries { try await server.client.removeItem(atPath: server.child(path, try safeName(entry.name))) }
             }
+        case .archive:
+            throw ExplorerError("Archives are read-only. Use Extract here to change their contents.")
         case .photos:
-            guard case let .delete(entries) = action else { throw ExplorerError("This operation is unavailable in Photos.") }
+            guard case let .delete(entries) = action, entries.allSatisfy({ !$0.isFolder }) else {
+                throw ExplorerError("This operation is unavailable in Photos.")
+            }
             let assets = PHAsset.fetchAssets(withLocalIdentifiers: entries.map(\.id), options: nil)
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.deleteAssets(assets)

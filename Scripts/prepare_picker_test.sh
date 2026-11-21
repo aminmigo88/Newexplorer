@@ -17,15 +17,18 @@ mkdir -p "$container/Documents/Downloads"
 echo "picker round trip" > "$container/Documents/Downloads/inside.txt"
 echo "top-level file" > "$container/Documents/root-file.txt"
 
-# A known photo for the viewer test.
-photo="$RUNNER_TEMP/nx-photo.png"
-python3 - "$photo" <<'PNG'
-import struct, sys, zlib
-width, height = 96, 64
-rows = b"".join(b"\x00" + bytes([30, 160, 170]) * width for _ in range(height))
-def chunk(tag, data):
-    return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
-png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
-open(sys.argv[1], "wb").write(png)
+# Two known photos for the viewer test.
+photos_dir="$RUNNER_TEMP/nx-photos"
+mkdir -p "$photos_dir"
+python3 - "$photos_dir" <<'PNG'
+import os, struct, sys, zlib
+def png(path, width, height, colour):
+    rows = b"".join(b"\x00" + bytes(colour) * width for _ in range(height))
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xffffffff)
+    data = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+    open(path, "wb").write(data)
+png(os.path.join(sys.argv[1], "nx-photo.png"), 96, 64, [30, 160, 170])
+png(os.path.join(sys.argv[1], "nx-photo-2.png"), 64, 48, [230, 120, 40])
 PNG
-xcrun simctl addmedia "$device" "$photo"
+xcrun simctl addmedia "$device" "$photos_dir/nx-photo.png" "$photos_dir/nx-photo-2.png"
