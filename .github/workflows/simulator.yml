@@ -26,7 +26,7 @@ jobs:
             --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' \
             | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone' || true
           [ "$status" -eq 0 ] || exit "$status"
-          xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 19, result'
+          xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 32, result'
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
             --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' | grep 'Local root .* Open'
       - name: Report simulator test failures
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          name: Newexplorer-v0.5.1-unsigned
+          name: Newexplorer-v0.6.0-unsigned
           path: |
             output/*.ipa
             output/SHA256.txt

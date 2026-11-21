@@ -73,6 +73,30 @@ enum PhotosAccess {
 
     static func itemCount(_ count: Int) -> String { count == 1 ? "1 item" : "\(count) items" }
 
+    // Photos and videos in a folder, for its Info.
+    static func counts(_ folder: PhotoFolder) async throws -> (photos: Int, videos: Int) {
+        try await authorize()
+        switch folder {
+        case .pictures: return (await splitCounts().pictures, 0)
+        case .others: return (await splitCounts().others, 0)
+        default: break
+        }
+        return await Task.detached {
+            func split(_ assets: PHFetchResult<PHAsset>) -> (photos: Int, videos: Int) {
+                (assets.countOfAssets(with: .image), assets.countOfAssets(with: .video))
+            }
+            switch folder {
+            case .all: return split(PHAsset.fetchAssets(with: nil))
+            case .videos: return (0, PHAsset.fetchAssets(with: .video, options: nil).count)
+            case .screenshots: return screenshotAlbum().map { split(PHAsset.fetchAssets(in: $0, options: nil)) } ?? (0, 0)
+            case let .album(id, _):
+                guard let album = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [id], options: nil).firstObject else { return (0, 0) }
+                return split(PHAsset.fetchAssets(in: album, options: nil))
+            case .pictures, .others: return (0, 0)
+            }
+        }.value
+    }
+
     // Counts for Pictures and Others, which the folder list shows once they are ready.
     static func splitCounts() async -> (pictures: Int, others: Int) {
         await Task.detached {
@@ -108,19 +132,21 @@ enum PhotosAccess {
         return ids
     }
 
-    static func list(_ folder: PhotoFolder, limit: Int = 150) async throws -> [Entry] {
+    // Lists a folder in date order straight from Photos, so a page is right for the whole folder.
+    // Without a limit the whole folder is listed, which sorting by name and searching need.
+    static func list(_ folder: PhotoFolder, limit: Int? = 150, oldestFirst: Bool = false) async throws -> [Entry] {
         try await authorize()
         return await Task.detached {
             let options = PHFetchOptions()
-            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
+            options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: oldestFirst)]
             let assets: PHFetchResult<PHAsset>
             var keep: ((PHAsset) -> Bool)?
             switch folder {
             case .all:
-                options.fetchLimit = limit
+                options.fetchLimit = limit ?? 0
                 assets = PHAsset.fetchAssets(with: options)
             case .videos:
-                options.fetchLimit = limit
+                options.fetchLimit = limit ?? 0
                 assets = PHAsset.fetchAssets(with: .video, options: options)
             case .pictures, .others:
                 // Sorted while listing, so no fetch limit here.
@@ -129,11 +155,11 @@ enum PhotosAccess {
                 keep = { !isScreenshot($0, in: shots) && isCameraShot($0) == camera }
                 assets = PHAsset.fetchAssets(with: .image, options: options)
             case .screenshots:
-                options.fetchLimit = limit
+                options.fetchLimit = limit ?? 0
                 guard let album = screenshotAlbum() else { return [] }
                 assets = PHAsset.fetchAssets(in: album, options: options)
             case let .album(id, _):
-                options.fetchLimit = limit
+                options.fetchLimit = limit ?? 0
                 guard let album = PHAssetCollection.fetchAssetCollections(withLocalIdentifiers: [id], options: nil).firstObject else { return [] }
                 assets = PHAsset.fetchAssets(in: album, options: options)
             }
@@ -144,7 +170,7 @@ enum PhotosAccess {
                     entries.append(Entry(id: asset.localIdentifier, name: main.originalFilename,
                                          isFolder: false, bytes: nil, date: asset.creationDate, isPhoto: true))
                 }
-                if entries.count >= limit { stop.pointee = true }
+                if let limit, entries.count >= limit { stop.pointee = true }
             }
             return entries
         }.value
@@ -162,16 +188,7 @@ enum PhotosAccess {
     // Exports one file as Photos shows it: the edited version when there is one,
     // and only the still image of a Live Photo.
     static func export(_ entry: Entry, into folder: URL) async throws -> URL {
-        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [entry.id], options: nil).firstObject
-        else { throw ExplorerError("This photo is no longer available.") }
-        let resources = PHAssetResource.assetResources(for: asset)
-        let isVideo = asset.mediaType == .video
-        let originalType: PHAssetResourceType = isVideo ? .video : .photo
-        let renderType: PHAssetResourceType = isVideo ? .fullSizeVideo : .fullSizePhoto
-        let original = resources.first { $0.type == originalType } ?? originals(asset).first
-        let render = resources.first { $0.type == renderType }
-        guard let resource = render ?? original else { throw ExplorerError("Photos could not supply this item.") }
-        let name = exportName(original: original?.originalFilename ?? entry.name, render: render?.originalFilename)
+        let (resource, name) = try exportChoice(entry)
         let url = folder.appendingPathComponent(try safeName(name))
         let options = PHAssetResourceRequestOptions()
         options.isNetworkAccessAllowed = true
@@ -181,6 +198,20 @@ enum PhotosAccess {
             }
         }
         return url
+    }
+    // The name an exported item gets, known before anything is written.
+    static func exportFileName(_ entry: Entry) throws -> String { try exportChoice(entry).1 }
+    private static func exportChoice(_ entry: Entry) throws -> (PHAssetResource, String) {
+        guard let asset = PHAsset.fetchAssets(withLocalIdentifiers: [entry.id], options: nil).firstObject
+        else { throw ExplorerError("This photo is no longer available.") }
+        let resources = PHAssetResource.assetResources(for: asset)
+        let isVideo = asset.mediaType == .video
+        let originalType: PHAssetResourceType = isVideo ? .video : .photo
+        let renderType: PHAssetResourceType = isVideo ? .fullSizeVideo : .fullSizePhoto
+        let original = resources.first { $0.type == originalType } ?? originals(asset).first
+        let render = resources.first { $0.type == renderType }
+        guard let resource = render ?? original else { throw ExplorerError("Photos could not supply this item.") }
+        return (resource, exportName(original: original?.originalFilename ?? entry.name, render: render?.originalFilename))
     }
     // An edited render keeps the original name with the render's file type: IMG_1234.HEIC → IMG_1234.JPG.
     static func exportName(original: String, render: String?) -> String {

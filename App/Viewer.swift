@@ -130,14 +130,18 @@ final class ViewerModel: ObservableObject {
         return url
     }
 
-    // Send gives the same result as Copy and Paste here into the other pane.
-    func send(_ entry: Entry, to destination: Location) async throws {
+    // What Send copies. A photo or archive file already prepared for viewing is sent from there,
+    // so it isn't exported or unpacked again; the result is the same as Copy and Paste.
+    func sendSource(for entry: Entry) -> (entry: Entry, from: Location) {
         switch source {
         case .photos, .archive:
-            if let ready = prepared[entry.id] { try await Transfer.deliver(ready, to: destination); return }
+            guard let ready = prepared[entry.id] else { break }
+            let size = (try? ready.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { Int64($0) }
+            let file = Entry(id: ready.lastPathComponent, name: ready.lastPathComponent, isFolder: false, bytes: size, date: entry.date)
+            return (file, .local(ready.deletingLastPathComponent()))
         default: break
         }
-        try await Transfer.copy(entry, from: source, to: destination)
+        return (entry, source)
     }
 
     private func workspace() throws -> URL {
@@ -165,7 +169,7 @@ struct ViewerView: View {
     @ObservedObject private var other: Pane
     private let otherLabel: String
     @Environment(\.dismiss) private var dismiss
-    @State private var sending = false
+    @StateObject private var transfers = TransferCenter()
     @State private var sent = Set<String>()
     @State private var problem: String?
     @State private var showingInfo = false
@@ -190,7 +194,7 @@ struct ViewerView: View {
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") { dismiss() }.disabled(sending).accessibilityIdentifier("viewer-close")
+                        Button("Close") { dismiss() }.disabled(transfers.running).accessibilityIdentifier("viewer-close")
                     }
                     ToolbarItemGroup(placement: .primaryAction) {
                         Button { showingInfo = true } label: { Image(systemName: "info.circle") }
@@ -203,6 +207,7 @@ struct ViewerView: View {
                 .safeAreaInset(edge: .bottom) { bottomBar }
         }
         .onChange(of: model.index) { _, _ in problem = nil }
+        .conflictQuestion(transfers)
         .sheet(isPresented: $showingInfo) { InfoView(entry: entry, model: model) }
         .sheet(item: $sharing) { ActivityView(items: [$0.url]).presentationDetents([.medium, .large]) }
         .onDisappear { model.cleanup() }
@@ -214,19 +219,19 @@ struct ViewerView: View {
                 if let problem {
                     Text(problem).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center)
                 }
-                if showsSend {
+                if transfers.running {
+                    TransferBar(center: transfers)
+                } else if showsSend {
                     let done = sent.contains(entry.id)
                     Button(action: send) {
-                        HStack {
-                            if sending { ProgressView() }
-                            Label(done ? "Sent to \(otherLabel)" : "Send to \(otherLabel) · \(other.location.title)",
-                                  systemImage: done ? "checkmark.circle.fill" : "paperplane.fill")
-                                .lineLimit(1)
-                        }.frame(maxWidth: .infinity)
+                        Label(done ? "Sent to \(otherLabel)" : "Send to \(otherLabel) · \(other.location.title)",
+                              systemImage: done ? "checkmark.circle.fill" : "paperplane.fill")
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    .disabled(sending || done || other.busy)
+                    .disabled(done || other.busy)
                     .accessibilityIdentifier("viewer-send")
                 }
             }
@@ -237,21 +242,15 @@ struct ViewerView: View {
     }
 
     private func send() {
-        guard !sending else { return }
+        guard !transfers.running else { return }
         let current = entry
-        let destination = other.location
-        sending = true
+        let (item, origin) = model.sendSource(for: current)
+        let target = other
         problem = nil
-        Task {
-            do {
-                try await model.send(current, to: destination)
-                sent.insert(current.id)
-                sending = false
-                await other.refresh()
-            } catch {
-                problem = error.localizedDescription
-                sending = false
-            }
+        transfers.start([item], from: origin, to: target.location, move: false) { report in
+            if report.done > 0 { sent.insert(current.id) }
+            if let failure = report.failure { problem = failure }
+            Task { await target.reload() }
         }
     }
 

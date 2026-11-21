@@ -192,6 +192,15 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertFalse(app.buttons["viewer-send"].exists, app.debugDescription)
         app.buttons["viewer-close"].tap()
 
+        // Long-press Info shows the file's data without opening it.
+        XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
+        copied.press(forDuration: 1.2)
+        let info = app.buttons["Info"]
+        XCTAssertTrue(info.waitForExistence(timeout: 5), app.debugDescription)
+        info.tap()
+        XCTAssertTrue(app.staticTexts["Size"].waitForExistence(timeout: 15), app.debugDescription)
+        app.buttons["info-done"].tap()
+
         // A ZIP opens like a folder; a file inside opens in the viewer; up leaves the archive.
         XCTAssertTrue(copied.waitForExistence(timeout: 10), app.debugDescription)
         copied.press(forDuration: 1.2)
@@ -218,6 +227,7 @@ final class LocationChoiceTests: XCTestCase {
         copied.tap()
         let copyOne = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Copy 1")).firstMatch
         XCTAssertTrue(copyOne.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["cut-A"].isEnabled, app.debugDescription)
         app.buttons["select-mode-A"].tap()
         XCTAssertFalse(app.buttons["Select \(name)"].exists)
         XCTAssertFalse(copyOne.exists)

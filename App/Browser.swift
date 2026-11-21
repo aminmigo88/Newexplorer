@@ -6,12 +6,30 @@ import Photos
 @MainActor
 final class Pane: ObservableObject {
     @Published var location: Location
-    @Published var rows: [Entry] = []
+    @Published var rows: [Entry] = [] { didSet { resort() } }
+    @Published var query = "" {
+        didSet {
+            refilter()
+            // A search covers the whole Photos folder, not only the photos loaded so far.
+            if !query.isEmpty, case .photos(.some) = location, !photosComplete { Task { await loadAllPhotos() } }
+        }
+    }
+    @Published var showHidden = false {
+        didSet {
+            refilter()
+            if !showHidden { marked.formIntersection(shown.map(\.id)) }
+        }
+    }
+    // The rows as shown: sorted once when the rows or the order change, filtered when the search changes.
+    @Published private(set) var shown: [Entry] = []
+    private var sorted: [Entry] = []
     @Published var marked = Set<String>()
     @Published var busy = false
     @Published var message: String?
     @Published var photoLimit = 150
     @Published var loadingMore = false
+    // True when every photo of the open Photos folder is in the list.
+    @Published private(set) var photosComplete = true
     private var generation = UUID()
     private let savedFolderKey: String
     private var restoreKey: String { savedFolderKey + ".active" }
@@ -32,6 +50,16 @@ final class Pane: ObservableObject {
         photoSort = ListOrder(stored: defaults.string(forKey: savedFolderKey + ".photoSort"), fallback: ListOrder(key: .date))
     }
     var isPhotos: Bool { if case .photos = location { return true }; return false }
+    var isPhotosTop: Bool { if case .photos(nil) = location { return true }; return false }
+    private func resort() {
+        sorted = isPhotosTop ? rows : sortOrder.sorted(rows)
+        refilter()
+    }
+    private func refilter() {
+        shown = sorted.filter {
+            (showHidden || !$0.name.hasPrefix(".")) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query))
+        }
+    }
     var sortOrder: ListOrder { isPhotos ? photoSort : fileSort }
     // iOS gives no sizes for photos, so the Photos list offers the other keys.
     var sortKeys: [SortKey] { isPhotos ? [.name, .date, .kind] : SortKey.allCases }
@@ -42,10 +70,13 @@ final class Pane: ObservableObject {
         if isPhotos {
             photoSort = next
             UserDefaults.standard.set(next.stored, forKey: savedFolderKey + ".photoSort")
+            // Photos are listed in pages, so a new order is fetched from Photos itself.
+            if case .photos(.some) = location { Task { await refresh() } }
         } else {
             fileSort = next
             UserDefaults.standard.set(next.stored, forKey: savedFolderKey + ".sort")
         }
+        resort()
     }
     func setSelecting(_ on: Bool) {
         selecting = on
@@ -118,23 +149,55 @@ final class Pane: ObservableObject {
         }
         bookmarkWarning = nil
         info = nil
+        query = ""
         location = next
         photoLimit = 150
+        photosComplete = true
         await refresh()
     }
     // Adds the next photos below the ones shown, so the list keeps its place.
-    func loadMorePhotos() async {
-        guard case let .photos(folder?) = location, !loadingMore, !busy else { return }
+    func loadMorePhotos() async { await loadPhotos(limit: photoLimit == .max ? nil : photoLimit + 150) }
+    // Searching needs the whole folder, so the rest of it is loaded in the background.
+    func loadAllPhotos() async { await loadPhotos(limit: nil) }
+    private func loadPhotos(limit: Int?) async {
+        guard case let .photos(folder?) = location, !loadingMore, !busy, !photosComplete else { return }
         loadingMore = true
         defer { loadingMore = false }
         let ticket = generation
         do {
-            let result = try await PhotosAccess.list(folder, limit: photoLimit + 150)
+            let result = try await PhotosAccess.list(folder, limit: limit, oldestFirst: photoSort.key == .date && photoSort.reversed)
             guard generation == ticket else { return }
-            photoLimit += 150
+            // Int.max marks a folder loaded in full, so a reload keeps all of it.
+            photoLimit = limit ?? .max
+            photosComplete = limit == nil || result.count < photoLimit
             rows = result
         } catch {
             if generation == ticket { info = "Couldn’t load more photos. \(error.localizedDescription)" }
+        }
+    }
+    // Lists the location. Photos come in date order from Photos itself; sorting by name or kind needs them all.
+    private func fetch() async throws -> [Entry] {
+        guard case let .photos(folder) = location else { return try await Directory.list(location) }
+        guard let folder else { return try await PhotosAccess.folders() }
+        let order = photoSort
+        let limit = order.key != .date || photoLimit == .max ? nil : photoLimit
+        let result = try await PhotosAccess.list(folder, limit: limit, oldestFirst: order.key == .date && order.reversed)
+        photosComplete = limit == nil || result.count < photoLimit
+        return result
+    }
+    // Reloads in place after a change, keeping the list's position and the selection that still exists.
+    func reload() async {
+        guard !busy else { return }
+        let ticket = generation
+        do {
+            let result = try await fetch()
+            guard generation == ticket else { return }
+            message = nil
+            rows = result
+            marked.formIntersection(result.map(\.id))
+            if case .photos(nil) = location { countPhotoFolders(ticket) }
+        } catch {
+            if generation == ticket { message = "Couldn’t open \(location.title). \(error.localizedDescription)" }
         }
     }
     // Pictures and Others need a look at every image, so their counts arrive after the list.
@@ -159,11 +222,7 @@ final class Pane: ObservableObject {
         message = nil
         defer { if generation == ticket { busy = false } }
         do {
-            let result: [Entry]
-            if case let .photos(folder) = location {
-                if let folder { result = try await PhotosAccess.list(folder, limit: photoLimit) }
-                else { result = try await PhotosAccess.folders() }
-            } else { result = try await Directory.list(location) }
+            let result = try await fetch()
             if generation == ticket { rows = result }
             if case .photos(nil) = location, generation == ticket { countPhotoFolders(ticket) }
         } catch {
@@ -180,6 +239,7 @@ struct NewexplorerApp: App {
 struct ExplorerView: View {
     @StateObject private var first = Pane(label: "A")
     @StateObject private var second = Pane(label: "B")
+    @StateObject private var transfers = TransferCenter()
     @State private var picker: FilesPickerRequest?
     @State private var shelf: Shelf?
     @State private var transferStatus: String?
@@ -205,7 +265,7 @@ struct ExplorerView: View {
                                 do { try await FileActions.clearTemporaryFiles(); notice = "Temporary transfer files cleared." }
                                 catch { notice = error.localizedDescription }
                             }
-                        }
+                        }.disabled(transfers.running)
                     } label: { Image(systemName: "gearshape") }.disabled(working)
                 }.padding(.horizontal, 16)
                 let layout = geo.size.width > geo.size.height ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
@@ -213,10 +273,18 @@ struct ExplorerView: View {
                     pane(first, label: "A")
                     pane(second, label: "B")
                 }.disabled(working)
-                if let status = transferStatus { Text(status).font(.footnote).padding(.horizontal, 16) }
+                if transfers.running { TransferBar(center: transfers) }
+                else if let status = transferStatus {
+                    HStack {
+                        Text(status)
+                        Spacer()
+                        Button("OK") { transferStatus = nil }
+                    }.font(.footnote).padding(.horizontal, 16)
+                }
                 else if let shelf {
                     HStack {
-                        Label("\(shelf.items.count) selected for copying", systemImage: "doc.on.clipboard")
+                        Label("\(shelf.items.count) selected for \(shelf.move ? "moving" : "copying")",
+                              systemImage: shelf.move ? "scissors" : "doc.on.clipboard")
                         Spacer()
                         Button("Clear") { self.shelf = nil }
                     }.font(.footnote).padding(.horizontal, 16)
@@ -242,6 +310,7 @@ struct ExplorerView: View {
                 }
             }
         }
+        .conflictQuestion(transfers)
         .alert("Newexplorer", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
@@ -249,48 +318,66 @@ struct ExplorerView: View {
     }
 
     private func pane(_ model: Pane, label: String) -> some View {
-        PaneView(pane: model, other: model === first ? second : first, label: label, canPaste: shelf != nil,
-                 pick: { picker = FilesPickerRequest(mode: $0, pane: model) },
-                 copy: {
-                     shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) })
-                     transferStatus = nil
-                 }, paste: { transfer(into: model) }, scan: { scan(model) }, archive: { archive($0, extract: $1, pane: model) }, action: { edit($0, pane: model) })
+        let other = model === first ? second : first
+        return PaneView(pane: model, other: other, label: label, canPaste: shelf != nil && !transfers.running,
+                        transferring: transfers.running,
+                        pick: { picker = FilesPickerRequest(mode: $0, pane: model) },
+                        copy: { move in
+                            shelf = Shelf(from: model.location, items: model.rows.filter { model.marked.contains($0.id) }, move: move)
+                            transferStatus = nil
+                        },
+                        paste: { transfer(into: model) },
+                        scan: { scan(model) },
+                        send: { items in send(items, from: model, to: other) },
+                        archive: { archive($0, extract: $1, pane: model) },
+                        compress: { compress($0, named: $1, pane: model) },
+                        action: { edit($0, pane: model) })
+    }
+
+    // Reloads, in place, only the panes that show one of the changed locations.
+    private func reloadPanes(showing locations: [Location]) async {
+        let keys = locations.reduce(into: Set<String>()) { $0.formUnion($1.spotKeys) }
+        for pane in [first, second] where !keys.isDisjoint(with: pane.location.spotKeys) { await pane.reload() }
+    }
+    private func summary(_ report: TransferCenter.Report, move: Bool, to destination: Location) -> String {
+        var parts = ["\(move ? "Moved" : "Copied") \(report.done) to \(destination.title)"]
+        if report.skipped > 0 { parts.append("skipped \(report.skipped)") }
+        if report.cancelled { parts.append("cancelled") }
+        if report.stopped { parts.append("stopped") }
+        return parts.joined(separator: " · ")
+    }
+    private func transfer(into pane: Pane) {
+        guard let selection = shelf, !transfers.running else { return }
+        let destination = pane.location
+        transferStatus = nil
+        transfers.start(selection.items, from: selection.from, to: destination, move: selection.move) { report in
+            if report.failure == nil && !report.cancelled && !report.stopped && shelf?.id == selection.id { shelf = nil }
+            transferStatus = summary(report, move: selection.move, to: destination)
+            if let failure = report.failure { notice = failure }
+            Task { await reloadPanes(showing: selection.move ? [destination, selection.from] : [destination]) }
+        }
+    }
+    private func send(_ items: [Entry], from source: Pane, to target: Pane) {
+        guard !transfers.running, !items.isEmpty else { return }
+        let origin = source.location, destination = target.location
+        transferStatus = nil
+        transfers.start(items, from: origin, to: destination, move: false) { report in
+            transferStatus = summary(report, move: false, to: destination)
+            if let failure = report.failure { notice = failure }
+            Task { await reloadPanes(showing: [destination]) }
+        }
     }
     private func edit(_ action: FileAction, pane: Pane) {
         guard !working else { return }
         working = true
-        shelf = nil
         transferStatus = nil
         let location = pane.location
         Task {
             defer { working = false }
-            do { try await FileActions.perform(action, at: location) }
+            do { if let note = try await FileActions.perform(action, at: location) { notice = note } }
             catch { notice = error.localizedDescription }
-            await first.refresh()
-            await second.refresh()
-        }
-    }
-    private func transfer(into pane: Pane) {
-        guard let selection = shelf, !working else { return }
-        working = true
-        let destination = pane.location
-        Task {
-            defer { working = false }
-            var completed = 0
-            do {
-                for item in selection.items {
-                    transferStatus = "Copying \(completed + 1) of \(selection.items.count) · \(item.name)"
-                    try await Transfer.copy(item, from: selection.from, to: destination)
-                    completed += 1
-                }
-                shelf = nil
-            } catch {
-                shelf = Shelf(from: selection.from, items: Array(selection.items.dropFirst(completed)))
-                notice = error.localizedDescription
-            }
-            transferStatus = "Copied \(completed) of \(selection.items.count) to \(destination.title)"
-            await first.refresh()
-            await second.refresh()
+            if case .delete = action { shelf = nil }
+            await reloadPanes(showing: [location])
         }
     }
     private func scan(_ pane: Pane) {
@@ -307,21 +394,57 @@ struct ExplorerView: View {
             } catch { notice = error.localizedDescription }
         }
     }
+    // The folder that holds a row's file, for actions that write next to it.
+    private func container(of row: Entry, in location: Location) async -> (URL, AnyObject)? {
+        switch location {
+        case let .folder(grant, url): return (url, grant)
+        case let .place(place):
+            guard row.placeRole == .rootItem, let root = await Places.shared.root(place) else { return nil }
+            return (root.url, root)
+        default: return nil
+        }
+    }
     private func archive(_ row: Entry, extract: Bool, pane: Pane) {
-        guard case let .folder(grant, url) = pane.location, !working else { return }
+        guard !working else { return }
+        let location = pane.location
         working = true
         transferStatus = (extract ? "Extracting " : "Compressing ") + "\(row.name)…"
         Task {
             defer { working = false; transferStatus = nil }
+            guard let spot = await container(of: row, in: location) else { return }
+            let (folder, keep) = spot
             do {
                 try await Task.detached {
-                    try withExtendedLifetime(grant) {
-                        let item = url.appendingPathComponent(row.name)
+                    try withExtendedLifetime(keep) {
+                        let item = folder.appendingPathComponent(row.name)
                         if extract { try ArchiveTools.extract(item) } else { try Files.zip(item) }
                     }
                 }.value
-                await first.refresh()
-                await second.refresh()
+                await reloadPanes(showing: [location])
+            } catch { notice = error.localizedDescription }
+        }
+    }
+    private func compress(_ rows: [Entry], named name: String, pane: Pane) {
+        guard !working, let row = rows.first else { return }
+        let location = pane.location
+        working = true
+        transferStatus = "Compressing \(rows.count) \(rows.count == 1 ? "item" : "items")…"
+        Task {
+            defer { working = false; transferStatus = nil }
+            guard let spot = await container(of: row, in: location),
+                  rows.allSatisfy({ $0.placeRole == nil || $0.placeRole == .rootItem }) else {
+                notice = "Only items stored in this folder can be put in a ZIP here."
+                return
+            }
+            let (folder, keep) = spot
+            do {
+                try await Task.detached {
+                    try withExtendedLifetime(keep) {
+                        try Files.zip(rows.map { folder.appendingPathComponent($0.name) }, named: name, in: folder)
+                    }
+                }.value
+                pane.setSelecting(false)
+                await reloadPanes(showing: [location])
             } catch { notice = error.localizedDescription }
         }
     }
@@ -332,18 +455,26 @@ struct PaneView: View {
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var pane: Pane
     @ObservedObject var places = Places.shared
-    let other: Pane
+    @ObservedObject var other: Pane
     let label: String
     let canPaste: Bool
+    let transferring: Bool
     let pick: (FilesPickerMode) -> Void
-    let copy, paste, scan: () -> Void
+    // true for Cut, false for Copy.
+    let copy: (Bool) -> Void
+    let paste, scan: () -> Void
+    let send: ([Entry]) -> Void
     let archive: (Entry, Bool) -> Void
+    let compress: ([Entry], String) -> Void
     let action: (FileAction) -> Void
     @State private var connecting = false
     @State private var viewing: ViewerRequest?
     @State private var viewerOutcome: ViewerOutcome?
-    @State private var showHidden = false
-    @State private var query = ""
+    @State private var info: InfoRequest?
+    @State private var sharing: SharedFile?
+    @State private var shareTemporary: URL?
+    @State private var zipNaming = false
+    @State private var zipName = ""
     @State private var newName = ""
     @State private var renaming: Entry?
     @State private var naming = false
@@ -359,9 +490,29 @@ struct PaneView: View {
     private var archiveLocation: Bool { pane.location.isArchive }
     private func selectable(_ row: Entry) -> Bool { !(photosTop && row.isFolder) }
     private var currentPlace: Place? { if case let .place(place) = pane.location { return place }; return nil }
+    private var otherLabel: String { label == "A" ? "B" : "A" }
+    private var selectedRows: [Entry] { pane.rows.filter { pane.marked.contains($0.id) } }
     private func open(_ location: Location) {
-        query = ""
         Task { await pane.open(location) }
+    }
+    private func choose(_ mode: FilesPickerMode) {
+        pane.query = ""
+        pick(mode)
+    }
+    // The folder a row's file is in, so Send isn't offered into that same folder.
+    private func sourceFolder(_ row: Entry) -> URL? {
+        switch pane.location {
+        case .photos, .archive, .share: return nil
+        default: return pane.location.fileURL(for: row)?.deletingLastPathComponent()
+        }
+    }
+    private func canSend(_ row: Entry) -> Bool {
+        guard !transferring, selectable(row), row.placeRole != .unavailable, other.message == nil, !other.busy else { return false }
+        return SendRule.allows(other.location, sourceFolder: sourceFolder(row))
+    }
+    // Extract and Create ZIP write next to the item, so they need a folder on disk.
+    private func writesNext(to row: Entry) -> Bool {
+        local || (currentPlace != nil && row.placeRole == .rootItem)
     }
 
     @ViewBuilder private var locationChoices: some View {
@@ -369,9 +520,9 @@ struct PaneView: View {
             Button(place.title, systemImage: place.symbol) { open(.place(place)) }
                 .accessibilityIdentifier("place-\(place.rawValue)-" + label)
         }
-        Button("Open a folder in this pane", systemImage: "folder") { query = ""; pick(.folder) }
+        Button("Open a folder in this pane", systemImage: "folder") { choose(.folder) }
             .accessibilityIdentifier("choose-folder-" + label)
-        Button("Browse Files locations", systemImage: "externaldrive") { query = ""; pick(.files) }
+        Button("Browse Files locations", systemImage: "externaldrive") { choose(.files) }
             .accessibilityIdentifier("browse-files-" + label)
         Button("Open Photos", systemImage: "photo.on.rectangle") { open(.photos(nil)) }
             .accessibilityIdentifier("open-photos-" + label)
@@ -386,16 +537,16 @@ struct PaneView: View {
     }
 
     @ViewBuilder private var emptyRows: some View {
-        if !query.isEmpty {
-            Text("No matches for “\(query)”.").foregroundStyle(.secondary)
-            Button("Clear search") { query = "" }
+        if !pane.query.isEmpty {
+            Text("No matches for “\(pane.query)”.").foregroundStyle(.secondary)
+            Button("Clear search") { pane.query = "" }
         } else if pane.location.isAppFiles {
             locationChoices
             if !pane.rows.isEmpty {
-                Button("Show hidden files") { showHidden = true }
+                Button("Show hidden files") { pane.showHidden = true }
             }
         } else if !pane.rows.isEmpty {
-            Button("Show hidden files") { showHidden = true }
+            Button("Show hidden files") { pane.showHidden = true }
         } else if photoLocation {
             Text("No photos or videos are available to Newexplorer.").foregroundStyle(.secondary)
             if PHPhotoLibrary.authorizationStatus(for: .readWrite) == .limited { settingsButton }
@@ -403,20 +554,13 @@ struct PaneView: View {
             EmptyView()
         } else if local {
             Text("No files were returned for this folder. Files may show additional locations.").foregroundStyle(.secondary)
-            Button("Browse Files locations", systemImage: "externaldrive") { query = ""; pick(.files) }
+            Button("Browse Files locations", systemImage: "externaldrive") { choose(.files) }
                 .accessibilityIdentifier("browse-empty-" + label)
-            Button("Open another folder", systemImage: "folder") { query = ""; pick(.folder) }
+            Button("Open another folder", systemImage: "folder") { choose(.folder) }
         } else {
             Text("This folder is empty.").foregroundStyle(.secondary)
         }
     }
-    private var visible: [Entry] {
-        let filtered = pane.rows.filter {
-            (showHidden || !$0.name.hasPrefix(".")) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query))
-        }
-        return photosTop ? filtered : pane.sortOrder.sorted(filtered)
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -425,7 +569,6 @@ struct PaneView: View {
                     Button("App files", systemImage: "iphone") { open(.appFiles) }
                     if let name = pane.savedFolderName {
                         Button("Reopen \(name)", systemImage: "bookmark") {
-                            query = ""
                             Task { await pane.reopenFolder() }
                         }
                     }
@@ -444,8 +587,7 @@ struct PaneView: View {
                 } label: { Image(systemName: "arrow.up") }.disabled(pane.location.parent == nil).accessibilityLabel("Parent folder")
                 Menu {
                     Button("Refresh", systemImage: "arrow.clockwise") { Task { await pane.refresh() } }
-                    Toggle("Show hidden files", isOn: $showHidden)
-                        .onChange(of: showHidden) { _, value in if !value { pane.marked.formIntersection(visible.map(\.id)) } }
+                    Toggle("Show hidden files", isOn: $pane.showHidden)
                     if !photosTop {
                         Menu {
                             ForEach(pane.sortKeys, id: \.self) { key in
@@ -457,8 +599,15 @@ struct PaneView: View {
                             }
                         } label: { Label("Sort by", systemImage: "arrow.up.arrow.down") }
                     }
-                    Button("Select visible items") { pane.selecting = true; pane.marked = Set(visible.filter(selectable).map(\.id)) }
+                    Button("Select visible items") { pane.selecting = true; pane.marked = Set(pane.shown.filter(selectable).map(\.id)) }
                     Button("Clear selection") { pane.marked.removeAll() }
+                    if local || currentPlace != nil {
+                        Button("Compress selected items…", systemImage: "archivebox") {
+                            let rows = selectedRows
+                            zipName = rows.count == 1 ? rows[0].name + ".zip" : "Archive.zip"
+                            zipNaming = true
+                        }.disabled(pane.marked.isEmpty)
+                    }
                     if !photoLocation && !pane.location.isFileSelection && !archiveLocation {
                         Button("New folder", systemImage: "folder.badge.plus") {
                             renaming = nil
@@ -474,9 +623,9 @@ struct PaneView: View {
             Divider()
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Search this location", text: $query)
+                TextField("Search this location", text: $pane.query)
                     .textInputAutocapitalization(.never).autocorrectionDisabled()
-                if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") } }
+                if !pane.query.isEmpty { Button { pane.query = "" } label: { Image(systemName: "xmark.circle.fill") } }
             }.font(.subheadline).padding(.horizontal, 12).padding(.vertical, 6)
             if pane.busy { Spacer(); ProgressView(); Spacer() }
             else if let message = pane.message {
@@ -487,12 +636,12 @@ struct PaneView: View {
                     }
                     Button("Try again") { Task { await pane.refresh() } }
                     if let place = currentPlace {
-                        Button("Open the top of \(place.title) again") { query = ""; pick(.placeRoot(place)) }
+                        Button("Open the top of \(place.title) again") { choose(.placeRoot(place)) }
                     } else if archiveLocation, let parent = pane.location.parent {
                         Button("Go back") { open(parent) }
                     } else if !photoLocation {
-                        Button("Choose a folder again") { query = ""; pick(.folder) }
-                        Button("Browse Files locations") { query = ""; pick(.files) }
+                        Button("Choose a folder again") { choose(.folder) }
+                        Button("Browse Files locations") { choose(.files) }
                     }
                 }.listStyle(.plain)
             } else {
@@ -500,8 +649,8 @@ struct PaneView: View {
                     if let warning = pane.bookmarkWarning { Text(warning).font(.footnote) }
                     if let info = pane.info { Text(info).font(.footnote) }
                     if let place = currentPlace { placeHeader(place) }
-                    if visible.isEmpty { emptyRows }
-                    ForEach(visible) { row in
+                    if pane.shown.isEmpty { emptyRows }
+                    ForEach(pane.shown) { row in
                         HStack {
                             if pane.selecting && selectable(row) {
                                 Button { toggle(row.id) } label: {
@@ -527,6 +676,15 @@ struct PaneView: View {
                                 }.contentShape(Rectangle())
                             }.buttonStyle(.plain).accessibilityIdentifier("item-" + label + "-" + row.name)
                         }.contextMenu {
+                            if canSend(row) {
+                                Button("Send to \(otherLabel) · \(other.location.title)", systemImage: "paperplane") { send([row]) }
+                            }
+                            if !row.isFolder && selectable(row) && row.placeRole != .unavailable {
+                                Button("Share", systemImage: "square.and.arrow.up") { share(row) }
+                            }
+                            if row.placeRole != .unavailable {
+                                Button("Info", systemImage: "info.circle") { info = MediaInfo.request(for: row, in: pane.location) }
+                            }
                             if let place = currentPlace, let role = row.placeRole, role != .rootItem {
                                 if role == .savedFolder || role == .unavailable {
                                     Button("Rename in list", systemImage: "pencil") {
@@ -550,30 +708,44 @@ struct PaneView: View {
                                     deleting = true
                                 }
                             }
-                            if local {
-                                if !row.isFolder && ["zip", "rar"].contains((row.name as NSString).pathExtension.lowercased()) {
+                            if writesNext(to: row) {
+                                if !row.isFolder && ArchiveTools.isBrowsable(row.name) {
                                     Button("Extract here", systemImage: "folder.badge.plus") { archive(row, true) }
                                 }
                                 Button("Create ZIP", systemImage: "archivebox") { archive(row, false) }
                             }
                         }
                     }
-                    if case .photos(.some) = pane.location, pane.rows.count >= pane.photoLimit {
-                        Button { Task { await pane.loadMorePhotos() } } label: {
-                            HStack {
-                                Text("Show more photos")
-                                if pane.loadingMore { Spacer(); ProgressView() }
-                            }
-                        }.disabled(pane.loadingMore).accessibilityIdentifier("show-more-" + label)
+                    if case .photos(.some) = pane.location, !pane.photosComplete {
+                        if pane.query.isEmpty {
+                            Button { Task { await pane.loadMorePhotos() } } label: {
+                                HStack {
+                                    Text("Show more photos")
+                                    if pane.loadingMore { Spacer(); ProgressView() }
+                                }
+                            }.disabled(pane.loadingMore).accessibilityIdentifier("show-more-" + label)
+                        } else {
+                            // A search covers the whole folder, so the rest of it is loaded first.
+                            Button { Task { await pane.loadAllPhotos() } } label: {
+                                HStack {
+                                    Text(pane.loadingMore ? "Searching all photos…" : "Search all photos")
+                                    if pane.loadingMore { Spacer(); ProgressView() }
+                                }
+                            }.disabled(pane.loadingMore).accessibilityIdentifier("search-all-" + label)
+                        }
                     }
                 }.listStyle(.plain)
             }
             Divider()
-            HStack {
-                Button { copy() } label: { Label(pane.marked.isEmpty ? "Copy" : "Copy \(pane.marked.count)", systemImage: "doc.on.doc") }
-                    .disabled(pane.marked.isEmpty)
+            HStack(spacing: 16) {
+                Button { copy(false) } label: { Label(pane.marked.isEmpty ? "Copy" : "Copy \(pane.marked.count)", systemImage: "doc.on.doc") }
+                    .disabled(pane.marked.isEmpty).accessibilityIdentifier("copy-" + label)
+                Button { copy(true) } label: { Label("Cut", systemImage: "scissors") }
+                    .disabled(pane.marked.isEmpty || !Transfer.canMove(from: pane.location)).accessibilityIdentifier("cut-" + label)
                 Spacer()
-                Button { paste() } label: { Label("Paste here", systemImage: "doc.on.clipboard") }.disabled(!canPaste || pane.busy || pane.message != nil || pane.location.isFileSelection || archiveLocation)
+                Button { paste() } label: { Label("Paste here", systemImage: "doc.on.clipboard") }
+                    .disabled(!canPaste || pane.busy || pane.message != nil || pane.location.isFileSelection || archiveLocation)
+                    .accessibilityIdentifier("paste-" + label)
             }.font(.subheadline.weight(.semibold)).padding(10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -586,11 +758,22 @@ struct PaneView: View {
             Task { await pane.refresh() }
         }
         .fullScreenCover(item: $viewing, onDismiss: {
-            if viewerOutcome?.downloaded == true { Task { await pane.refresh() } }
+            if viewerOutcome?.downloaded == true { Task { await pane.reload() } }
             viewerOutcome = nil
         }) { request in
-            ViewerView(request: request, other: other, otherLabel: label == "A" ? "B" : "A")
+            ViewerView(request: request, other: other, otherLabel: otherLabel)
         }
+        .sheet(item: $info) { InfoView($0) }
+        .sheet(item: $sharing, onDismiss: {
+            if let temporary = shareTemporary { try? Files.fm.removeItem(at: temporary) }
+            shareTemporary = nil
+        }) { ActivityView(items: [$0.url]).presentationDetents([.medium, .large]) }
+        .alert("Compress selected items", isPresented: $zipNaming) {
+            TextField("ZIP name", text: $zipName)
+            Button("Cancel", role: .cancel) { }
+            Button("Create ZIP") { compress(selectedRows, zipName) }
+                .disabled(zipName.trimmingCharacters(in: .whitespaces).isEmpty)
+        } message: { Text("One ZIP with the \(pane.marked.count) selected items is made in this folder.") }
         .alert(renaming == nil ? "New folder" : "Rename", isPresented: $naming) {
             TextField("Name", text: $newName)
             Button("Cancel", role: .cancel) { }
@@ -607,7 +790,7 @@ struct PaneView: View {
             }.disabled(listName.trimmingCharacters(in: .whitespaces).isEmpty)
         }
         .onChange(of: places.revision) { _, _ in
-            if currentPlace != nil { Task { await pane.refresh() } }
+            if currentPlace != nil { Task { await pane.reload() } }
         }
         .onChange(of: deleting) { _, shown in
             if !shown && !pane.selecting { pane.marked.removeAll() }
@@ -633,7 +816,7 @@ struct PaneView: View {
             openArchive(row, at: url)
         } else if photoLocation || archiveLocation || pane.location.fileURL(for: row) != nil {
             // The viewer swipes through the files of this list in the order shown.
-            let files = visible.filter { !$0.isFolder }
+            let files = pane.shown.filter { !$0.isFolder }
             let outcome = ViewerOutcome()
             viewerOutcome = outcome
             viewing = ViewerRequest(items: files, start: files.firstIndex { $0.id == row.id } ?? 0, source: pane.location, outcome: outcome)
@@ -646,14 +829,31 @@ struct PaneView: View {
 
     @ViewBuilder private func placeHeader(_ place: Place) -> some View {
         if !places.hasRoot(place) {
-            Button("Open the top of \(place.title)", systemImage: place.symbol) { query = ""; pick(.placeRoot(place)) }
+            Button("Open the top of \(place.title)", systemImage: place.symbol) { choose(.placeRoot(place)) }
                 .accessibilityIdentifier("place-root-" + label)
         }
-        Button("Add app folders", systemImage: "folder.badge.plus") { query = ""; pick(.placeFolders(place)) }
+        Button("Add app folders", systemImage: "folder.badge.plus") { choose(.placeFolders(place)) }
             .accessibilityIdentifier("place-add-" + label)
         if !places.hasFolders(place) {
             Text("Each app’s folder is kept separate by iOS. Add the ones you want once; you can pick several together.")
                 .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    // Shares the file itself, or a temporary copy for Photos, archive and Windows share items.
+    private func share(_ row: Entry) {
+        guard downloading == nil else { return }
+        let location = pane.location
+        downloading = row.id
+        Task {
+            defer { downloading = nil }
+            do {
+                let (url, temporary) = try await Transfer.localFile(row, from: location)
+                shareTemporary = temporary
+                sharing = SharedFile(url: url)
+            } catch {
+                pane.info = "Couldn’t share \(row.name). \(error.localizedDescription)"
+            }
         }
     }
 
