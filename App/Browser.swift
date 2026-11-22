@@ -446,16 +446,6 @@ struct ExplorerView: View {
             }
         }
         .conflictQuestion(transfers)
-        // Files from other apps: Open in or Copy to Newexplorer, or a file opened from Files.
-        .onOpenURL { url in
-            if receiving == nil { receiving = Receiving(urls: [url]) }
-            else if receiving?.urls.contains(url) == false { receiving?.urls.append(url) }
-        }
-        .sheet(item: $receiving) { item in
-            SaveToView(urls: item.urls, choices: saveChoices(for: item.urls), transfers: transfers,
-                       save: { saveIncoming(item.urls, to: $0) },
-                       cancel: { Incoming.discard(item.urls); receiving = nil })
-        }
         .alert("Newexplorer", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
