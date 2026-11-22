@@ -34,22 +34,6 @@ struct PaneSpot: Codable, Equatable {
     }
 }
 
-// What a dragged row carries: the pane it came from and the rows' ids.
-enum DragPayload {
-    static let prefix = "newexplorer-drag:"
-    static func text(pane: String, ids: [String]) -> String {
-        guard let data = try? JSONSerialization.data(withJSONObject: ["pane": pane, "ids": ids]),
-              let json = String(data: data, encoding: .utf8) else { return prefix }
-        return prefix + json
-    }
-    static func read(_ text: String) -> (pane: String, ids: [String])? {
-        guard text.hasPrefix(prefix), let data = String(text.dropFirst(prefix.count)).data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let pane = object["pane"] as? String, let ids = object["ids"] as? [String], !ids.isEmpty else { return nil }
-        return (pane, ids)
-    }
-}
-
 // Files another app hands over with Open in or Copy to. iOS puts its own copy in Documents/Inbox,
 // which is removed once the file is saved elsewhere; a file opened from Files is used in place.
 enum Incoming {

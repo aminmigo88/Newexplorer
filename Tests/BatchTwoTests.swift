@@ -1,7 +1,7 @@
 import XCTest
 @testable import Newexplorer
 
-// Saved shares, finding devices, subfolder search, reopening the exact folder, drag and drop,
+// Saved shares, finding devices, subfolder search, reopening the exact folder,
 // received files and file icons.
 final class BatchTwoTests: XCTestCase {
     @MainActor func testSavedSharesRememberMatchAndForget() throws {
@@ -147,15 +147,6 @@ final class BatchTwoTests: XCTestCase {
         XCTAssertEqual(reopened.location.parent?.title, "Spot Test Folder")
         let saved = try XCTUnwrap(UserDefaults.standard.data(forKey: "savedFolder.SpotTest.spot"))
         XCTAssertEqual(try JSONDecoder().decode(PaneSpot.self, from: saved), PaneSpot(kind: .appFiles, path: ["Spot Test Folder", "Inner"]))
-    }
-
-    func testDragPayloadRoundTrip() {
-        let text = DragPayload.text(pane: "A", ids: ["a:b.txt", "Folder/x\\ny"])
-        let read = DragPayload.read(text)
-        XCTAssertEqual(read?.pane, "A")
-        XCTAssertEqual(read?.ids, ["a:b.txt", "Folder/x\\ny"])
-        XCTAssertNil(DragPayload.read("hello"))
-        XCTAssertNil(DragPayload.read(DragPayload.prefix + "{}"))
     }
 
     func testReceivedFilesAndInbox() throws {

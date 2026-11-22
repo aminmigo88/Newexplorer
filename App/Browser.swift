@@ -475,7 +475,6 @@ struct ExplorerView: View {
                         paste: { transfer(into: model) },
                         scan: { scan(model) },
                         send: { items in send(items, from: model, to: other) },
-                        dropped: { ids in send(other.listed.filter { ids.contains($0.id) }, from: other, to: model) },
                         archive: { archive($0, extract: $1, pane: model) },
                         compress: { compress($0, named: $1, pane: model) },
                         action: { edit($0, pane: model) })
@@ -646,14 +645,11 @@ struct PaneView: View {
     let copy: (Bool) -> Void
     let paste, scan: () -> Void
     let send: ([Entry]) -> Void
-    // Ids of rows dragged here from the other pane.
-    let dropped: ([String]) -> Void
     let archive: (Entry, Bool) -> Void
     let compress: ([Entry], String) -> Void
     let action: (FileAction) -> Void
     @State private var connecting = false
     @State private var prefill: SavedShare?
-    @State private var dropping = false
     @State private var viewing: ViewerRequest?
     @State private var viewerOutcome: ViewerOutcome?
     @State private var info: InfoRequest?
@@ -702,18 +698,6 @@ struct PaneView: View {
     // Extract and Create ZIP write next to the item, so they need a folder on disk.
     private func writesNext(to row: Entry) -> Bool {
         home(row) == nil && (local || (currentPlace != nil && row.placeRole == .rootItem))
-    }
-    private var canReceiveDrop: Bool {
-        !transferring && !pane.busy && pane.message == nil && !pane.location.isFileSelection && !archiveLocation
-    }
-    // A drop from the other pane copies the dragged rows here, the same as Send.
-    private func receiveDrop(_ items: [String]) -> Bool {
-        guard canReceiveDrop, let payload = items.compactMap({ DragPayload.read($0) }).first, payload.pane == otherLabel else { return false }
-        dropped(payload.ids)
-        return true
-    }
-    private func dragIDs(_ row: Entry) -> [String] {
-        pane.selecting && pane.marked.contains(row.id) ? pane.listed.map(\.id).filter { pane.marked.contains($0) } : [row.id]
     }
     private func connectSaved(_ item: SavedShare) {
         Task {
@@ -949,7 +933,6 @@ struct PaneView: View {
                                 Button("Create ZIP", systemImage: "archivebox") { archive(row, false) }
                             }
                         }
-                        .draggableIf(selectable(row) && row.placeRole != .unavailable, DragPayload.text(pane: label, ids: dragIDs(row)))
                     }
                     if case .photos(.some) = pane.location, !pane.photosComplete {
                         if pane.query.isEmpty {
@@ -971,7 +954,6 @@ struct PaneView: View {
                     }
                 }
                 .listStyle(.plain)
-                .dropDestination(for: String.self) { items, _ in receiveDrop(items) } isTargeted: { dropping = $0 && canReceiveDrop }
             }
             Divider()
             HStack(spacing: 16) {
@@ -987,7 +969,7 @@ struct PaneView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(dropping ? AnyShapeStyle(Color.teal) : AnyShapeStyle(.quaternary), lineWidth: dropping ? 3 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
         .padding(.horizontal, 6)
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active, photoLocation, !pane.busy,
@@ -1125,12 +1107,5 @@ struct PaneView: View {
                 pane.info = "Couldn’t download \(row.name). \(error.localizedDescription)"
             }
         }
-    }
-}
-
-extension View {
-    // Rows that can be copied can also be dragged to the other pane.
-    @ViewBuilder func draggableIf(_ enabled: Bool, _ payload: @autoclosure @escaping () -> String) -> some View {
-        if enabled { draggable(payload()) } else { self }
     }
 }
