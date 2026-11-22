@@ -11,7 +11,7 @@ final class BatchTwoTests: XCTestCase {
         XCTAssertTrue(SavedShares.shared.all.contains(item))
         // An unsigned simulator build may have no Keychain; a signed app stores the password.
         if stored { XCTAssertEqual(SavedShares.shared.password(for: item), "secret") }
-        XCTAssertEqual(item.title, "Docs on laptop.local")
+        XCTAssertEqual(item.title, "laptop.local/Docs")
         let server = try Share(host: "LAPTOP.local", share: "docs", user: "amin", password: "secret")
         XCTAssertEqual(SavedShares.shared.match(server), item)
         let other = try Share(host: "laptop.local", share: "Docs", user: "guest", password: "")

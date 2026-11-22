@@ -61,6 +61,8 @@ final class Share {
     let name: String
     let host: String
     let user: String
+    // The PC's name for addresses and Send, such as MSI; the address it was reached at until a name is known.
+    var displayName: String
     init(host: String, share: String, user: String, password: String) throws {
         var parts = URLComponents()
         parts.scheme = "smb"
@@ -72,6 +74,7 @@ final class Share {
         self.client = client
         self.host = host
         self.user = user
+        self.displayName = host
         self.name = try safeName(share)
     }
     // The shared folders a computer offers to this account, without the hidden ones that end in $.

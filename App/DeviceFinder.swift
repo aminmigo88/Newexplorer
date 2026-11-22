@@ -100,6 +100,8 @@ final class DeviceFinder: ObservableObject {
 enum LocalNetwork {
     private static let queue = DispatchQueue(label: "Newexplorer.localNetwork", attributes: .concurrent)
 
+    static func isAddress(_ host: String) -> Bool { IPv4Address(host) != nil || IPv6Address(host) != nil }
+
     // Port 445 first; a PC that answers is then asked for its name.
     static func probe(_ host: String) async -> (String, Bool, String?) {
         guard await isOpen(host, port: 445) else { return (host, false, nil) }
