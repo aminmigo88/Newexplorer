@@ -356,7 +356,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.example.newexplorer";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -379,7 +379,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.example.newexplorer";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -492,7 +492,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.tests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.example.newexplorer.tests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -507,7 +507,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.tests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.example.newexplorer.tests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -592,7 +592,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Debug";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.uitests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.example.newexplorer.uitests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
@@ -606,7 +606,7 @@
 			"isa" = "XCBuildConfiguration";
 			"name" = "Release";
 			"buildSettings" = {
-				"PRODUCT_BUNDLE_IDENTIFIER" = "app.ximenia9398.cheetah4988.uitests";
+				"PRODUCT_BUNDLE_IDENTIFIER" = "com.example.newexplorer.uitests";
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";

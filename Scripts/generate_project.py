@@ -1,6 +1,7 @@
 from pathlib import Path
 from hashlib import sha1
 import json
+import os
 from xml.etree.ElementTree import Element, SubElement, indent, ElementTree
 p=Path(__file__).resolve().parents[1]
 def ID(s):return sha1(s.encode()).hexdigest()[:24].upper()
@@ -25,6 +26,9 @@ for n,url,v in [('AMSMB2','amosavian/AMSMB2','4.0.3'),('ZIPFoundation','weichsel
     packs.append(ref)
     dep=obj(n+'prod','XCSwiftPackageProductDependency',package=ref,productName=n)
     obj(n+'link','PBXBuildFile',productRef=dep)
+# The bundle ID must be the App ID in your signing profile (README, Signing).
+# BUNDLE_ID=your.app.id python3 Scripts/generate_project.py
+bundle_id=os.environ.get('BUNDLE_ID') or 'com.example.newexplorer'
 products=[]; groups=[]
 targets = [('Newexplorer','App','.app','application'),('NewexplorerTests','Tests','.xctest','bundle.unit-test'),
            ('NewexplorerUITests','UITests','.xctest','bundle.ui-testing')]
@@ -47,7 +51,7 @@ for target,folder,ext,typ in targets:
     sources=obj(target+'src','PBXSourcesBuildPhase',buildActionMask=2147483647,files=builds,runOnlyForDeploymentPostprocessing=0)
     fw=obj(target+'fw','PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[ID(n+'link') for n in ['AMSMB2','ZIPFoundation','LibArchive']] if app else [],runOnlyForDeploymentPostprocessing=0)
     suffix = {'App': '', 'Tests': '.tests', 'UITests': '.uitests'}[folder]
-    cfg={'PRODUCT_BUNDLE_IDENTIFIER':'app.ximenia9398.cheetah4988'+suffix,'PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks','@loader_path/Frameworks'],'MARKETING_VERSION':'0.8.0','CURRENT_PROJECT_VERSION':'11'}
+    cfg={'PRODUCT_BUNDLE_IDENTIFIER':bundle_id+suffix,'PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks','@loader_path/Frameworks'],'MARKETING_VERSION':'0.8.0','CURRENT_PROJECT_VERSION':'11'}
     phases=[sources,fw,resourcePhase]
     deps=[]
     if app:

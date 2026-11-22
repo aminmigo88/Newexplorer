@@ -1,5 +1,6 @@
 """Package an unsigned device app and check its bundled dependencies."""
 from pathlib import Path
+import os
 import plistlib
 import shutil
 import subprocess
@@ -10,6 +11,8 @@ app = Path("build/device/Build/Products/Release-iphoneos/Newexplorer.app")
 info = plistlib.loads((app / "Info.plist").read_bytes())
 assert info["CFBundleShortVersionString"] == "0.8.0"
 assert info["CFBundleVersion"] == "11"
+# The bundle ID set for this build: the BUNDLE_ID secret, or the placeholder when it isn't set.
+assert info["CFBundleIdentifier"] == (os.environ.get("BUNDLE_ID") or "com.example.newexplorer"), "The app doesn't have the bundle ID set for this build"
 assert info["UIFileSharingEnabled"] and info["LSSupportsOpeningDocumentsInPlace"]
 assert "iPhoneOS" in info["CFBundleSupportedPlatforms"]
 binary = app / info["CFBundleExecutable"]
