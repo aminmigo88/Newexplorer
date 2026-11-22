@@ -5,8 +5,10 @@ struct SavedShare: Codable, Hashable, Identifiable {
     let host: String
     let share: String
     let user: String
+    // The PC's name, such as MSI, when it is known; shown instead of an IP address.
+    var name: String? = nil
     var id: String { user + "@" + host + "/" + share }
-    var title: String { share + " on " + host }
+    var title: String { (name ?? host) + "/" + share }
 }
 
 // Windows shares the person chose to remember. The list is kept in the app's settings;
@@ -35,6 +37,12 @@ final class SavedShares: ObservableObject {
         return stored
     }
     func password(for share: SavedShare) -> String? { Keychain.get(account: share.id) }
+    // Keeps a PC name learned later, such as from a NetBIOS answer, without touching the password.
+    func update(_ share: SavedShare) {
+        guard let index = all.firstIndex(where: { $0.id == share.id }) else { return }
+        all[index] = share
+        persist()
+    }
     func forget(_ share: SavedShare) {
         Keychain.remove(account: share.id)
         all.removeAll { $0.id == share.id }

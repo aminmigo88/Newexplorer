@@ -174,7 +174,6 @@ struct SharedFile: Identifiable {
 struct ViewerView: View {
     @StateObject private var model: ViewerModel
     @ObservedObject private var other: Pane
-    private let otherLabel: String
     @Environment(\.dismiss) private var dismiss
     @StateObject private var transfers = TransferCenter()
     @State private var sent = Set<String>()
@@ -183,10 +182,9 @@ struct ViewerView: View {
     @State private var sharing: SharedFile?
     @State private var preparingShare = false
 
-    init(request: ViewerRequest, other: Pane, otherLabel: String) {
+    init(request: ViewerRequest, other: Pane) {
         _model = StateObject(wrappedValue: ViewerModel(request))
         _other = ObservedObject(wrappedValue: other)
-        self.otherLabel = otherLabel
     }
 
     private var entry: Entry { model.current }
@@ -231,7 +229,7 @@ struct ViewerView: View {
                 } else if showsSend {
                     let done = sent.contains(entry.id)
                     Button(action: send) {
-                        Label(done ? "Sent to \(otherLabel)" : "Send to \(otherLabel) · \(other.location.title)",
+                        Label((done ? "Sent to " : "Send to ") + other.location.addressText,
                               systemImage: done ? "checkmark.circle.fill" : "paperplane.fill")
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)

@@ -14,6 +14,7 @@ struct ConnectionView: View {
     @State private var busy = false
     @State private var listing = false
     @State private var shares: [String] = []
+    @State private var picked: FoundDevice?
     let connected: (Share) -> Void
 
     init(prefill: SavedShare? = nil, connected: @escaping (Share) -> Void) {
@@ -47,7 +48,7 @@ struct ConnectionView: View {
                         }
                     }.accessibilityIdentifier("find-devices")
                     ForEach(finder.devices) { device in
-                        Button { host = device.host } label: {
+                        Button { host = device.host; picked = device } label: {
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(device.name ?? device.host)
@@ -110,13 +111,14 @@ struct ConnectionView: View {
             error = "Enter the password for \(item.title)."
             return
         }
-        connect(host: item.host, share: item.share, user: item.user, password: stored, remembering: false)
+        connect(host: item.host, share: item.share, user: item.user, password: stored, remembering: false, name: item.name)
     }
     private func connect() {
-        connect(host: host.trimmingCharacters(in: .whitespacesAndNewlines), share: share.trimmingCharacters(in: .whitespacesAndNewlines),
-                user: user, password: password, remembering: remember)
+        let address = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        connect(host: address, share: share.trimmingCharacters(in: .whitespacesAndNewlines),
+                user: user, password: password, remembering: remember, name: picked?.host == address ? picked?.name : nil)
     }
-    private func connect(host: String, share: String, user: String, password: String, remembering: Bool) {
+    private func connect(host: String, share: String, user: String, password: String, remembering: Bool, name: String?) {
         busy = true
         error = nil
         Task {
@@ -124,7 +126,11 @@ struct ConnectionView: View {
             do {
                 let server = try Share(host: host, share: share, user: user, password: password)
                 try await server.client.connectShare(name: server.name)
-                if remembering { saved.remember(SavedShare(host: host, share: server.name, user: user), password: password) }
+                // Addresses show the PC's name; a PC reached by IP address is asked for it.
+                var known = name
+                if known == nil, LocalNetwork.isAddress(host) { known = await LocalNetwork.netbiosName(host) }
+                server.displayName = known ?? host
+                if remembering { saved.remember(SavedShare(host: host, share: server.name, user: user, name: known), password: password) }
                 finder.stop()
                 connected(server)
                 dismiss()

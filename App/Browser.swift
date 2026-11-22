@@ -216,6 +216,12 @@ final class Pane: ObservableObject {
         defer { busy = false }
         let server = try Share(host: saved.host, share: saved.share, user: saved.user, password: password)
         try await server.client.connectShare(name: server.name)
+        var known = saved
+        if known.name == nil, LocalNetwork.isAddress(saved.host), let name = await LocalNetwork.netbiosName(saved.host) {
+            known.name = name
+            SavedShares.shared.update(known)
+        }
+        server.displayName = known.name ?? saved.host
         busy = false
         await open(.share(server, path.isEmpty ? "/" : "/" + path.joined(separator: "/")))
         return true
@@ -382,6 +388,9 @@ struct ExplorerView: View {
     @State private var showingReport = false
     @State private var working = false
     @State private var receiving: Receiving?
+    // Tab mode shows one pane at a time over the whole screen, with a tab for each pane at the bottom.
+    @AppStorage("tabMode") private var tabMode = false
+    @AppStorage("activeTab") private var activeTab = 0
 
     var body: some View {
         GeometryReader { geo in
@@ -391,6 +400,11 @@ struct ExplorerView: View {
                     Text("Newexplorer").font(.title2.bold())
                     Spacer()
                     if working { ProgressView() }
+                    Button { tabMode.toggle() } label: {
+                        Image(systemName: tabMode ? "rectangle.split.1x2" : "rectangle.on.rectangle")
+                    }
+                    .accessibilityLabel(tabMode ? "Show both panes" : "Show one pane with tabs")
+                    .accessibilityIdentifier("view-mode")
                     Menu {
                         Text("Version " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""))
                         Button("Clear temporary transfer files") {
@@ -403,11 +417,21 @@ struct ExplorerView: View {
                         }.disabled(transfers.running)
                     } label: { Image(systemName: "gearshape") }.disabled(working)
                 }.padding(.horizontal, 16)
-                let layout = geo.size.width > geo.size.height ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
-                layout {
-                    pane(first, label: "A")
-                    pane(second, label: "B")
-                }.disabled(working)
+                if tabMode {
+                    // Both panes stay loaded, so each tab keeps its folder and scroll position.
+                    ZStack {
+                        pane(first, label: "A").opacity(activeTab == 0 ? 1 : 0).allowsHitTesting(activeTab == 0)
+                            .accessibilityHidden(activeTab != 0)
+                        pane(second, label: "B").opacity(activeTab == 1 ? 1 : 0).allowsHitTesting(activeTab == 1)
+                            .accessibilityHidden(activeTab != 1)
+                    }.disabled(working)
+                } else {
+                    let layout = geo.size.width > geo.size.height ? AnyLayout(HStackLayout(spacing: 8)) : AnyLayout(VStackLayout(spacing: 8))
+                    layout {
+                        pane(first, label: "A")
+                        pane(second, label: "B")
+                    }.disabled(working)
+                }
                 if transfers.running { TransferBar(center: transfers) }
                 else if let status = transferStatus {
                     HStack {
@@ -424,6 +448,7 @@ struct ExplorerView: View {
                         Button("Clear") { self.shelf = nil }
                     }.font(.footnote).padding(.horizontal, 16)
                 }
+                if tabMode { PaneTabs(first: first, second: second, active: $activeTab) }
             }.padding(.vertical, 6)
         }
         .tint(.teal)
@@ -672,7 +697,14 @@ struct PaneView: View {
     private var archiveLocation: Bool { pane.location.isArchive }
     private func selectable(_ row: Entry) -> Bool { !(photosTop && row.isFolder) }
     private var currentPlace: Place? { if case let .place(place) = pane.location { return place }; return nil }
-    private var otherLabel: String { label == "A" ? "B" : "A" }
+    // Under a row's name: its note, then for files and photos the date and time, then a file's size.
+    private func caption(_ row: Entry) -> String? {
+        var parts: [String] = []
+        if let note = row.note { parts.append(note) }
+        if !row.isFolder, let date = row.date { parts.append(date.formatted(date: .abbreviated, time: .shortened)) }
+        if !row.isFolder, !row.isPhoto, let size = row.bytes { parts.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
     private var selectedRows: [Entry] { pane.listed.filter { pane.marked.contains($0.id) } }
     // The folder a search result is in; nil for rows of this folder.
     private func home(_ row: Entry) -> Location? { pane.found == nil ? nil : pane.homes[row.id] }
@@ -763,8 +795,7 @@ struct PaneView: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(label).bold().foregroundStyle(.teal).accessibilityLabel("Pane \(label)")
+            HStack(spacing: 8) {
                 Menu {
                     Button("App files", systemImage: "iphone") { open(.appFiles) }
                     if let name = pane.savedFolderName {
@@ -774,10 +805,13 @@ struct PaneView: View {
                     }
                     locationChoices
                 } label: {
-                    Label(pane.location.title, systemImage: pane.location.symbol).lineLimit(1)
-                    Image(systemName: "chevron.down").font(.caption2)
+                    HStack(spacing: 2) {
+                        Image(systemName: pane.location.symbol)
+                        Image(systemName: "chevron.down").font(.caption2)
+                    }
                 }.accessibilityLabel("Pane \(label) location").accessibilityValue(pane.location.title)
-                Spacer()
+                AddressBar(crumbs: pane.location.crumbs) { open($0) }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 Button { pane.setSelecting(!pane.selecting) } label: {
                     Image(systemName: pane.selecting ? "checkmark.circle.fill" : "checkmark.circle")
                 }.accessibilityLabel(pane.selecting ? "Stop selecting in pane \(label)" : "Select items in pane \(label)")
@@ -881,9 +915,7 @@ struct PaneView: View {
                                     else { FileThumbnail(row: row, url: row.isFolder ? nil : base(row).fileURL(for: row)) }
                                     VStack(alignment: .leading) {
                                         Text(row.name).foregroundStyle(.primary).lineLimit(2)
-                                        if let note = row.note { Text(note).font(.caption).foregroundStyle(.secondary) }
-                                        else if let date = row.date, row.isPhoto { Text(date, style: .date).font(.caption).foregroundStyle(.secondary) }
-                                        else if let size = row.bytes, !row.isFolder { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(.caption).foregroundStyle(.secondary) }
+                                        if let caption = caption(row) { Text(caption).font(.caption).foregroundStyle(.secondary) }
                                     }
                                     Spacer()
                                     if downloading == row.id { ProgressView() }
@@ -893,7 +925,7 @@ struct PaneView: View {
                             }.buttonStyle(.plain).accessibilityIdentifier("item-" + label + "-" + row.name)
                         }.contextMenu {
                             if canSend(row) {
-                                Button("Send to \(otherLabel) · \(other.location.title)", systemImage: "paperplane") { send([row]) }
+                                Button("Send to " + other.location.addressText, systemImage: "paperplane") { send([row]) }
                             }
                             if !row.isFolder && selectable(row) && row.placeRole != .unavailable {
                                 Button("Share", systemImage: "square.and.arrow.up") { share(row) }
@@ -980,7 +1012,7 @@ struct PaneView: View {
             if viewerOutcome?.downloaded == true { Task { await pane.reload() } }
             viewerOutcome = nil
         }) { request in
-            ViewerView(request: request, other: other, otherLabel: otherLabel)
+            ViewerView(request: request, other: other)
         }
         .sheet(item: $info) { InfoView($0) }
         .sheet(item: $sharing, onDismiss: {

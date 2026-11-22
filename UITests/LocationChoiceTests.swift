@@ -191,7 +191,7 @@ final class LocationChoiceTests: XCTestCase {
         step("Send to pane A")
         let send = app.buttons["viewer-send"]
         XCTAssertTrue(send.waitForExistence(timeout: 15), app.debugDescription)
-        XCTAssertTrue(send.label.contains("Send to A"), send.label)
+        XCTAssertTrue(send.label.hasPrefix("Send to On My iPhone/"), send.label)
         expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: send)
         waitForExpectations(timeout: 30)
         send.tap()
