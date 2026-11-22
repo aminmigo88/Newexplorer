@@ -4,23 +4,6 @@
 <dict>
     <key>UIFileSharingEnabled</key>
     <true/>
-    <key>CFBundleDocumentTypes</key>
-    <array>
-        <dict>
-            <key>CFBundleTypeName</key>
-            <string>Any file</string>
-            <key>CFBundleTypeRole</key>
-            <string>Viewer</string>
-            <key>LSHandlerRank</key>
-            <string>Alternate</string>
-            <key>LSItemContentTypes</key>
-            <array>
-                <string>public.item</string>
-                <string>public.data</string>
-                <string>public.content</string>
-            </array>
-        </dict>
-    </array>
     <key>NSBonjourServices</key>
     <array>
         <string>_smb._tcp</string>
