@@ -15,6 +15,7 @@ struct ConnectionView: View {
     @State private var listing = false
     @State private var shares: [String] = []
     @State private var picked: FoundDevice?
+    @State private var attempt: Task<Void, Never>?
     let connected: (Share) -> Void
 
     init(prefill: SavedShare? = nil, connected: @escaping (Share) -> Void) {
@@ -95,10 +96,10 @@ struct ConnectionView: View {
             }
             .textInputAutocapitalization(.never).autocorrectionDisabled()
             .navigationTitle("Windows share")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(busy) } }
-            .interactiveDismissDisabled(busy)
+            // Cancel and swipe-down work even while connecting; the attempt is dropped.
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { attempt?.cancel(); dismiss() } } }
         }
-        .onDisappear { finder.stop() }
+        .onDisappear { finder.stop(); attempt?.cancel() }
     }
 
     // A saved share connects at once when its password is in the Keychain; otherwise it fills the form.
@@ -121,20 +122,29 @@ struct ConnectionView: View {
     private func connect(host: String, share: String, user: String, password: String, remembering: Bool, name: String?) {
         busy = true
         error = nil
-        Task {
+        attempt = Task {
             defer { busy = false }
             do {
                 let server = try Share(host: host, share: share, user: user, password: password)
+                try await Share.checkAnswering(server.host)
+                try Task.checkCancellation()
                 try await server.client.connectShare(name: server.name)
                 // Addresses show the PC's name; a PC reached by IP address is asked for it.
                 var known = name
                 if known == nil, LocalNetwork.isAddress(host) { known = await LocalNetwork.netbiosName(host) }
+                // Cancel closed the sheet while this was connecting: drop the connection.
+                guard !Task.isCancelled else {
+                    try? await server.client.disconnectShare()
+                    return
+                }
                 server.displayName = known ?? host
                 if remembering { saved.remember(SavedShare(host: host, share: server.name, user: user, name: known), password: password) }
                 finder.stop()
                 connected(server)
                 dismiss()
-            } catch { self.error = error.localizedDescription }
+            } catch {
+                if !Task.isCancelled { self.error = error.localizedDescription }
+            }
         }
     }
     private func listShares() {

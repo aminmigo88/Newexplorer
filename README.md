@@ -2,7 +2,7 @@
 
 A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, and a storage review finds duplicate files and empty folders.
 
-**Version 0.8.0 (build 11)** · iPhone with iOS 17 or later · SwiftUI
+**Version 0.8.1 (build 12)** · iPhone with iOS 17 or later · SwiftUI
 
 > [!IMPORTANT]
 > The app's bundle ID must be exactly the App ID in your signing profile. If it isn't, the app installs but can't use the files and folders you pick in Files. See [Signing and the bundle ID](#signing-and-the-bundle-id).
@@ -18,7 +18,10 @@ A two-pane file explorer for iPhone. Browse two places at once and copy or move 
 ### Address bar and location menu
 
 - Each pane shows its full address, for example `On My iPhone/Downloads/Documents`, `MSI/shared` or `Photos/Others`. Tap any part to go back to it. ↑ opens the parent folder.
-- The icon before the address opens the location menu: **App files**, **Reopen** *(the pane's last Files folder)*, **On My iPhone**, **iCloud Drive**, **Open a folder in this pane**, **Browse Files locations**, **Open Photos**, **Connect to Windows** and your saved Windows shares.
+- The bordered icon before the address opens the location menu:
+  - At the top: **On My iPhone**, **iCloud Drive**, **Open Photos** and **Connect to Windows**.
+  - Below a divider: **App files**, **Reopen** *(the pane's last Files folder)*, **Open a folder in this pane** and **Browse Files locations**.
+  - Then your saved Windows shares.
 
 ### Locations
 
@@ -76,6 +79,7 @@ What you can do in each:
 ### Windows shares
 
 - **Connect to Windows** asks for the computer name or IP address, the shared folder name, a Windows username and its password. **Show shared folders** lists the computer's shares so you can pick one.
+- If the computer doesn't answer within 5 seconds, you get an error instead of a long wait. **Cancel** works at any time, even while connecting.
 - **Find devices** looks on the same Wi-Fi for computers that accept file sharing on port 445, and for Macs and NAS drives that announce it (Bonjour). It shows the PC's name when the PC gives it. A PC whose firewall blocks file sharing doesn't appear.
 - Use the password of the Windows account that has access to the share. A Windows Hello PIN only signs you in on the PC and doesn't work here.
 - Addresses show the PC's name, from Find devices or asked from a PC you connect to by IP address. The IP address appears only in Find devices.
@@ -195,7 +199,7 @@ The workflow in `.github/workflows/simulator.yml` runs on every push and pull re
 
 1. It builds the app for an iPhone simulator and runs 37 unit tests and 3 UI tests.
 2. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
-3. It uploads the artifact **Newexplorer-v0.8.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
+3. It uploads the artifact **Newexplorer-v0.8.1-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
 
 In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in a new fork until you turn them on in its **Actions** tab.
 
@@ -249,6 +253,13 @@ Notes:
 - Drag and drop between panes isn't included. With it, taps, long presses and the Files picker failed in every simulator test run.
 
 ## Version history
+
+### 0.8.1 (build 12)
+
+- Fixed: the Windows sheet stayed locked after tapping a saved share whose PC was offline. **Cancel** and swipe-down now work even while connecting.
+- A computer that doesn't answer gives an error within 5 seconds instead of a 1-minute wait. This covers Connect, Show shared folders, saved shares opened from a pane's location menu, and reopening a share at launch.
+- The location icon is a little bigger and has a border.
+- The location menu lists On My iPhone, iCloud Drive, Open Photos and Connect to Windows first, above a divider.
 
 ### 0.8.0 (build 11)
 
