@@ -292,6 +292,7 @@ final class LocationChoiceTests: XCTestCase {
     // Shows On My iPhone in the picker, where the fixture app's folder is listed.
     private func showOnMyIPhone(in app: XCUIApplication) {
         for attempt in 1...4 {
+            closeMenu(in: app)
             if visible("Folder Test Source", in: app, timeout: 3) != nil { return }
             let back = app.navigationBars.buttons.matching(NSPredicate(format: "label == %@", "On My iPhone")).firstMatch
             if back.exists && back.isHittable {
@@ -306,9 +307,19 @@ final class LocationChoiceTests: XCTestCase {
         XCTAssertNotNil(visible("Folder Test Source", in: app, timeout: 5), app.debugDescription)
     }
 
+    // A slow tap can open the picker's menu for an item instead of the item; tap outside to close it.
+    private func closeMenu(in app: XCUIApplication) {
+        let menu = app.otherElements["LP.CaptionBar.TopCaption"]
+        guard menu.exists else { return }
+        XCTContext.runActivity(named: "Closing a menu the picker opened") { _ in }
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.03)).tap()
+        for _ in 0..<6 where menu.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.5)) }
+    }
+
     // The picker sometimes goes back to its top list after a tap; try the way in again.
     private func enterFixture(in app: XCUIApplication) {
         for attempt in 1...3 {
+            closeMenu(in: app)
             if visible("root-file", in: app, timeout: 2) != nil { return }
             showOnMyIPhone(in: app)
             visible("Folder Test Source", in: app)?.tap()
