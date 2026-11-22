@@ -48,7 +48,7 @@ struct FileThumbnail: View {
     @State private var picture: UIImage?
 
     private var key: String? {
-        guard let url, !row.isFolder, !row.inCloud, FileIcon.hasThumbnail(row.name) else { return nil }
+        guard false, let url, !row.isFolder, !row.inCloud, FileIcon.hasThumbnail(row.name) else { return nil }
         return url.path + "|" + String(row.date?.timeIntervalSince1970 ?? 0) + "|" + String(row.bytes ?? -1)
     }
     var body: some View {
