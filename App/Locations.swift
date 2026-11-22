@@ -77,6 +77,13 @@ final class Share {
         self.displayName = host
         self.name = try safeName(share)
     }
+    // A computer that doesn't answer on the file-sharing port fails here within 5 seconds,
+    // instead of after the SMB library's 60-second wait.
+    static func checkAnswering(_ host: String) async throws {
+        guard await LocalNetwork.isOpen(host, port: 445, timeout: 5) else {
+            throw ExplorerError("The computer isn’t answering. Check that it’s on, awake and on the same Wi-Fi, and that Local Network is allowed for Newexplorer in Settings.")
+        }
+    }
     // The shared folders a computer offers to this account, without the hidden ones that end in $.
     static func list(host: String, user: String, password: String) async throws -> [String] {
         var parts = URLComponents()
@@ -85,6 +92,7 @@ final class Share {
         guard !host.isEmpty, !host.contains("/"), !user.isEmpty, let url = parts.url,
               let client = SMB2Manager(url: url, credential: URLCredential(user: user, password: password, persistence: .forSession))
         else { throw ExplorerError("Enter a computer name or IP address and username.") }
+        try await checkAnswering(host)
         let shares = try await client.listShares()
         return shares.map { $0.name }.filter { !$0.hasSuffix("$") && (try? safeName($0)) != nil }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }

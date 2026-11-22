@@ -215,6 +215,7 @@ final class Pane: ObservableObject {
         busy = true
         defer { busy = false }
         let server = try Share(host: saved.host, share: saved.share, user: saved.user, password: password)
+        try await Share.checkAnswering(server.host)
         try await server.client.connectShare(name: server.name)
         var known = saved
         if known.name == nil, LocalNetwork.isAddress(saved.host), let name = await LocalNetwork.netbiosName(saved.host) {
@@ -797,19 +798,49 @@ struct PaneView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Menu {
-                    Button("App files", systemImage: "iphone") { open(.appFiles) }
-                    if let name = pane.savedFolderName {
-                        Button("Reopen \(name)", systemImage: "bookmark") {
-                            Task { await pane.reopenFolder() }
+                    // The main places first, above a divider.
+                    Section {
+                        ForEach(Place.allCases, id: \.self) { place in
+                            Button(place.title, systemImage: place.symbol) { open(.place(place)) }
+                                .accessibilityIdentifier("place-\(place.rawValue)-" + label)
+                        }
+                        Button("Open Photos", systemImage: "photo.on.rectangle") { open(.photos(nil)) }
+                            .accessibilityIdentifier("open-photos-" + label)
+                        Button("Connect to Windows", systemImage: "network") { prefill = nil; connecting = true }
+                            .accessibilityIdentifier("connect-windows-" + label)
+                    }
+                    Section {
+                        Button("App files", systemImage: "iphone") { open(.appFiles) }
+                        if let name = pane.savedFolderName {
+                            Button("Reopen \(name)", systemImage: "bookmark") {
+                                Task { await pane.reopenFolder() }
+                            }
+                        }
+                        Button("Open a folder in this pane", systemImage: "folder") { choose(.folder) }
+                            .accessibilityIdentifier("choose-folder-" + label)
+                        Button("Browse Files locations", systemImage: "externaldrive") { choose(.files) }
+                            .accessibilityIdentifier("browse-files-" + label)
+                    }
+                    if !shares.all.isEmpty {
+                        Section {
+                            ForEach(shares.all) { item in
+                                Button(item.title, systemImage: "externaldrive.connected.to.line.below") { connectSaved(item) }
+                            }
                         }
                     }
-                    locationChoices
                 } label: {
-                    HStack(spacing: 2) {
-                        Image(systemName: pane.location.symbol)
-                        Image(systemName: "chevron.down").font(.caption2)
+                    // A bigger icon with a visible border, so it reads as a button.
+                    HStack(spacing: 3) {
+                        Image(systemName: pane.location.symbol).font(.title3)
+                        Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                     }
-                }.accessibilityLabel("Pane \(label) location").accessibilityValue(pane.location.title)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.accentColor, lineWidth: 1))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+                }
+                .menuOrder(.fixed)
+                .accessibilityLabel("Pane \(label) location").accessibilityValue(pane.location.title)
                 AddressBar(crumbs: pane.location.crumbs) { open($0) }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Button { pane.setSelecting(!pane.selecting) } label: {
