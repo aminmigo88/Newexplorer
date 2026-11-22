@@ -111,7 +111,10 @@ final class LocationChoiceTests: XCTestCase {
             XCTContext.runActivity(named: "Open button " + (shown ? (confirm.isEnabled ? "enabled" : "disabled") + " '\(confirm.label)'" : "missing")) { _ in }
             if shown && confirm.isEnabled { confirm.tap() }
             if selection.waitForExistence(timeout: 8) { delivered = true; break }
-            XCTContext.runActivity(named: "Picker still shown: \(app.otherElements["Browse View (Picker)"].exists)") { _ in }
+            let alert = app.alerts.firstMatch
+            let titles = app.navigationBars.staticTexts.allElementsBoundByIndex.prefix(4).map(\.label).joined(separator: "|")
+            let buttons = app.navigationBars.buttons.allElementsBoundByIndex.prefix(8).map { $0.label + ($0.isEnabled ? "" : "(off)") }.joined(separator: "|")
+            XCTContext.runActivity(named: "Picker still shown: \(app.otherElements["Browse View (Picker)"].exists); alert: \(alert.exists ? alert.label : "none"); bars [\(titles)] buttons [\(buttons)]") { _ in }
             XCTContext.runActivity(named: "File pick not delivered, attempt \(attempt)") { _ in }
             app.terminate()
             app.launch()
