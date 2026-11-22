@@ -57,12 +57,22 @@ jobs:
           fi
       - name: Build unsigned iPhone app
         if: github.ref == 'refs/heads/main'
+        env:
+          # The App ID of your signing profile, kept in the repository secret BUNDLE_ID (README, Signing).
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
         run: |
+          if [ -n "$BUNDLE_ID" ]; then
+            python3 Scripts/generate_project.py
+          else
+            echo "::warning::The BUNDLE_ID secret is not set, so the IPA has the placeholder bundle ID com.example.newexplorer. Set it to the App ID of your signing profile (README, Signing)."
+          fi
           xcodebuild -quiet build -project Newexplorer.xcodeproj -scheme Newexplorer \
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO
       - name: Package and validate IPA
         if: github.ref == 'refs/heads/main'
+        env:
+          BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
         run: python3 Scripts/package_ipa.py
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'

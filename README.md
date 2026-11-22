@@ -1,26 +1,321 @@
-# Newexplorer 0.8.0
+# Newexplorer
 
-An iPhone file explorer for copying files between two independently navigable panes. The panes stack in portrait and sit side by side in landscape. The button next to the settings gear switches to Tab mode: one pane fills the screen, with a Chrome-style tab for each pane at the bottom; each tab keeps its folder and scroll position. Each pane shows its full address, such as On My iPhone/Downloads/Documents, MSI/shared or Photos/Others; tap a part to go back to it, and tap the icon before it for the location menu.
+A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, and a storage review finds duplicate files and empty folders.
 
-## Try the first build
+**Version 0.8.0 (build 11)** · iPhone with iOS 17 or later · SwiftUI
 
-Open Newexplorer.xcodeproj in Xcode, select the Newexplorer scheme and an iPhone running iOS 17 or later, and run the app. The project resolves AMSMB2, LibArchive and ZIPFoundation with Swift Package Manager.
+> [!IMPORTANT]
+> The app's bundle ID must be exactly the App ID in your signing profile. If it isn't, the app installs but can't use the files and folders you pick in Files. See [Signing and the bundle ID](#signing-and-the-bundle-id).
 
-1. On first launch, both panes show **App files**, Newexplorer’s own Documents folder. In pane A use **Browse Files locations** to navigate iCloud Drive, On My iPhone or another available provider and select files to preview or copy. Use **Open a folder in this pane** to browse a whole directory, then confirm the current directory with the picker’s Open or Done button. Each provider controls which folders it can return. On the tested simulator, the On My iPhone root returned a folder that omitted other apps’ shared folders. Browse Files locations shows the system listing and lets you choose individual files there. Choose **Open Photos** for the photo library. In pane B tap **Connect to Windows** for a Windows destination. These choices are also in each pane’s location menu. Enter the computer name or IP address, or tap **Find devices**: it looks on the same Wi-Fi for Macs and NAS drives that announce file sharing (Bonjour) and for computers that accept file sharing on port 445, with the Windows name when the PC gives it. Nothing is broadcast, so a PC whose firewall blocks file sharing doesn’t appear. Enter the credentials for an account with access, tap **Show shared folders** to pick one, and Connect. Addresses show the PC's name (from Find devices, or asked from a PC reached by IP address); the IP address appears only in Find devices. With **Remember this share** on, the share appears in the location menus and the Windows sheet, and its password is kept in the iPhone’s Keychain (swipe a saved share to forget it). Files on a share open in the viewer after downloading, and you can swipe through them.
-2. Choose **On My iPhone** or **iCloud Drive** from a pane's location menu. The first time, press Open at the top level of that location in Files. iOS gives an app only the items stored directly at that top level; each app's folder (and in iCloud Drive each app's folder such as Pages) is a separate grant, so use **Add app folders** and tick the ones you want, several at a time if the picker allows. Both panes share the list and reopen it after a relaunch. Long-press an added folder to rename it in the list or remove it. Paste and New folder act on the top level. iCloud files that are not downloaded show a cloud icon and download when you open or copy them.
-3. Photos, videos and PDFs on this iPhone show a QuickLook thumbnail; other files show an icon for their type. Under each name, files show their date and time and size, and photos the date and time taken. Each pane reopens in the exact folder it was in after a relaunch, including Photos folders and remembered Windows shares. Tap a file, photo or video to open it in Newexplorer’s viewer. Swipe left or right for the next or previous file in the list, in the order shown. **ⓘ** shows the name, kind, size, dates and folder, plus camera data (dimensions, camera, lens, aperture, shutter speed, ISO, date taken, GPS coordinates) for photos and duration, resolution and frame rate for videos. **Send to** followed by the other pane's address copies it there in one tap, the same as Copy and Paste here. Send is hidden when the other pane shows Photos, iCloud Drive, Selected files or the folder the file is already in.
-4. Tap the ✓ button at the top of a pane to show the circles, tick files or folders, then **Copy** or **Cut**. Tap ✓ again to hide the circles and clear the ticks. In the other pane tap **Paste here**. Cut moves the items: inside one storage area (such as On My iPhone) it only renames, elsewhere it copies and then deletes the original. Photos, archives and picked files can only be copied. Items are written into a hidden folder in the destination and then given their final name, so nothing is copied to a temporary folder first; on the same drive files are cloned instantly. When a name already exists you choose **Replace**, **Keep both** (adds a number) or **Skip**, or the same for all remaining items, or **Stop**. The bar under the panes shows MB and % and has **Cancel**; you can keep browsing while it runs. Only the panes that show the changed folder reload, and they keep their scroll position. Long-press an item for **Send to A/B** (the same as Copy and Paste into the other pane), **Share** and **Info**; Info on a folder shows its total size and how many files and folders it holds. Keep the app open for large transfers.
-5. In Photos, allow selected or full access. Photos opens to folders: **All**, **Pictures** (camera shots: photos with a location, Live, HDR, Portrait, Panorama or burst photos, or the camera’s HEIC or RAW format), **Videos**, **Screenshots** and **Others** (every other image, such as saved or downloaded ones), then one folder per album with its name from Photos. iOS doesn’t let apps read which app saved an image, so Pictures and Others are a best guess. **Show more photos** adds the next 150 below and keeps your place. Date order comes from Photos itself, so it is right for the whole folder; sorting by Name or Kind and searching load the whole folder first. Pasting into an album folder also adds the item to that album. Copy and Send give one file as Photos shows it: the edited version when there is one, and only the still image of a Live Photo. iCloud may need to download an original. Pasting a single supported image or movie into Photos imports it.
-6. Tap a ZIP, RAR, TAR, TGZ or ISO file to browse it like a folder without extracting it. Files inside open in the viewer, and Copy then Paste unpacks only the selected items. Archives are read-only; 7z, password-protected archives, archives on a Windows share and archives inside archives aren’t browsed. In a Files folder or at the top of On My iPhone or iCloud Drive, long-press an item for **Create ZIP** or, on any archive that can be browsed, **Extract here**; a taken name gets a number. **Compress selected items…** in the pane menu puts all ticked items into one ZIP. The pane menu can also find exact duplicate files and empty folders. Use Search to filter the loaded location; tick **Subfolders** to search every folder below it (on this iPhone, in places, on a Windows share and inside an archive, first 500 matches). Results show the folder they are in; tap to open, long-press for Send, Share, Info or **Show in folder**, or tick them for Copy and Cut. To save a file from another app, choose Newexplorer in its share sheet (Open in or Copy to), then pick App files or a pane’s location. The pane menu also provides New folder, selection controls and **Sort by** Name, Date, Size or Kind. Choosing the current order again reverses it. Folders stay on top, each pane remembers its order, and the Photos list keeps its own order (newest first by default, no Size). Long-press to rename or delete an item. Deleting a selection at the top of On My iPhone or iCloud Drive deletes the items stored there and skips added app folders, which are only removed from the list. Delete selected removes the selected files after confirmation. The report groups nonempty files by size and SHA-256. A scan can download cloud-backed files. File contents alone do not indicate whether deleting a copy is safe. Use the review to choose which copies to delete through the file browser. The app menu can clear temporary transfer files.
+## Features
 
-## Signing
+### Two panes or tabs
 
-The bundle identifier is `app.ximenia9398.cheetah4988`, the App ID in the signing profile. iOS hands Files folders only to an app whose bundle identifier matches the App ID it is signed with, so a different signing profile needs `PRODUCT_BUNDLE_IDENTIFIER` changed in Scripts/generate_project.py.
+- Two independent panes, each with its own location, folder, search, sort order and selection. They stack in portrait and sit side by side in landscape.
+- **Tab mode**: the button next to the ⚙︎ gear shows one pane over the whole screen, with a Chrome-style tab for each pane at the bottom, labelled with its address. Both panes stay loaded, so each tab keeps its folder and scroll position. Tap the button again to see both panes. The app remembers the mode.
+- On first launch both panes show **App files**. While it's empty, a pane lists the places it can open.
 
-## Current scope
+### Address bar and location menu
 
-This first version uses the app’s documents folder, directories granted through the iOS picker, PhotoKit and authenticated SMB shares. Each pane remembers its most recently opened Files folder and can reopen it from its location menu. A pane left in that folder reopens its bookmarked root on launch. Individual file selections last for the session. Network copies may leave a temporary .NX- item on a share if the Wi-Fi connection is lost. The scanner is read-only. File deletion is permanent outside Photos, so confirm the selected location and items. Photos deletion also affects iCloud Photos and other synced devices. Encrypted or multipart RAR support and reviewed deletion are future work. A transfer interrupted by closing the app can leave a hidden .NX- folder in the destination. Native RAR creation requires a separate encoder.
+- Each pane shows its full address, for example `On My iPhone/Downloads/Documents`, `MSI/shared` or `Photos/Others`. Tap any part to go back to it. ↑ opens the parent folder.
+- The icon before the address opens the location menu: **App files**, **Reopen** *(the pane's last Files folder)*, **On My iPhone**, **iCloud Drive**, **Open a folder in this pane**, **Browse Files locations**, **Open Photos**, **Connect to Windows** and your saved Windows shares.
 
-## Validation
+### Locations
 
-The simulator workflow builds the app and runs the local copy, collision, archive and duplicate-scan tests. UI tests check the empty panes, Windows connection form, Photos permission request and recovery after denial, opening a photo in the viewer, sending it to the other pane and the selection switch. First device checks are folder-picker access, limited Photos access, Live Photo still export, and copying in both directions against a real Windows share. For the network check, compare the transferred file with its source and repeat a copy with Wi-Fi disconnected partway through. The source should remain intact. The UI tests that pick folders and files with Apple's Files picker and that browse Photos are run and reported but don't block the build, because the simulator's picker currently drops picks and its Photos library hangs (the 0.6.0 code fails both the same way); check those on the iPhone. After successful simulator tests, the main-branch workflow builds an unsigned arm64 iPhone app, verifies its embedded framework and packages an IPA for signing with KravaSigner. The signing service must sign the embedded AMSMB2 framework as well as the app.
+| Location | What it shows |
+|---|---|
+| App files | Newexplorer's own Documents folder. It also appears in the Files app under On My iPhone › Newexplorer. |
+| On My iPhone, iCloud Drive | One list: the items at the top level plus the app folders you added. |
+| Files folder | Any folder opened with **Open a folder in this pane**, from any provider the Files app shows. |
+| Selected files | Single files chosen with **Browse Files locations**, for this session. |
+| Photos | The photo library in folders: All, Pictures, Videos, Screenshots, Others and your albums. |
+| Windows share | A shared folder on a PC, Mac or NAS drive, over SMB. |
+| Archive | A ZIP, RAR, TAR, TGZ or ISO file, opened read-only. |
+
+What you can do in each:
+
+| Location | Copy from | Paste into | Cut (move) | Delete | New folder, Rename | Search subfolders | Thumbnails |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| App files, Files folder | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| On My iPhone, iCloud Drive | ✅ | ✅ ¹ | ✅ | ✅ ² | ✅ ¹ | ✅ | ✅ |
+| Selected files | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Photos | ✅ | ✅ ³ | ❌ | ✅ ⁴ | ❌ | ❌ | ✅ |
+| Windows share | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Archive | ✅ ⁵ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ |
+
+1. Paste and New folder act on the top level. Inside an added app folder, the pane works like a Files folder.
+2. Deletes the items stored at the top level. Added app folders are only removed from the list.
+3. Images and videos only. Pasting into an album folder also adds them to that album.
+4. iOS asks you to confirm. With iCloud Photos on, they're deleted on your other devices too.
+5. Copy then Paste unpacks only the selected items.
+
+### On My iPhone and iCloud Drive
+
+- Choose **On My iPhone** or **iCloud Drive** in a pane's location menu. The first time, tap **Open the top of On My iPhone** (or iCloud Drive) and press **Open** at the top level in Files.
+- iOS gives an app only the items stored directly at that top level. Each app's folder (in iCloud Drive, for example Pages) is a separate grant, so tap **Add app folders** and tick the ones you want, several at a time when the picker allows.
+- Both panes share the list, and it stays after a relaunch. Long-press an added folder for **Rename in list** or **Remove from list**. Neither changes the folder itself.
+- iCloud files that aren't downloaded show a cloud icon and download when you open or copy them.
+
+### Files folders and single files
+
+- **Open a folder in this pane**: pick any folder in Files and confirm it with Open or Done. The pane browses it and can paste, rename and delete there. **Reopen** *(name)* in the location menu brings it back later.
+- **Browse Files locations** shows the Files app's own listing, which helps when a provider returns an empty folder, and lets you choose single files to preview or copy. They appear as **Selected files**.
+- Each provider decides what it returns. For example, picking the On My iPhone root as a folder doesn't include other apps' folders, which is why On My iPhone and iCloud Drive have their own combined lists.
+
+### Photos
+
+- Allow full or selected access the first time you open Photos. To change a selected-access choice later, use **Open Settings** in the empty Photos pane, or the Settings app.
+- Photos opens to folders: **All**, **Pictures**, **Videos**, **Screenshots**, **Others**, then one folder per album with its Photos name.
+  - **Pictures** holds camera shots: photos with a location, Live, HDR, Portrait, Panorama or burst photos, or photos in the camera's HEIC or RAW format.
+  - **Others** holds every other image, such as saved or downloaded ones.
+  - iOS doesn't tell apps which app saved an image, so Pictures and Others are a best guess. Neither includes screenshots.
+- A folder loads 150 items at a time. **Show more photos** at the bottom adds the next 150 and keeps your place.
+- The date order comes from Photos, so it's right for the whole folder. Sorting by Name or Kind, and searching, load the whole folder first.
+- Copy and Send give one file as Photos shows it: the edited version when there is one, and the still image of a Live Photo. iCloud may need to download the original first.
+
+### Windows shares
+
+- **Connect to Windows** asks for the computer name or IP address, the shared folder name, a Windows username and its password. **Show shared folders** lists the computer's shares so you can pick one.
+- **Find devices** looks on the same Wi-Fi for computers that accept file sharing on port 445, and for Macs and NAS drives that announce it (Bonjour). It shows the PC's name when the PC gives it. A PC whose firewall blocks file sharing doesn't appear.
+- Use the password of the Windows account that has access to the share. A Windows Hello PIN only signs you in on the PC and doesn't work here.
+- Addresses show the PC's name, from Find devices or asked from a PC you connect to by IP address. The IP address appears only in Find devices.
+- **Remember this share** adds the share to the location menus and the Windows sheet, and keeps its password in this iPhone's Keychain (this device only). Swipe left on a saved share to forget it and its password.
+- Files on a share open in the viewer after downloading, and you can swipe through them.
+
+### Viewer and Info
+
+- Tap a file, photo or video to open it. Photos fit the screen and zoom with two fingers or a double tap. Videos play in the system player, and other files open in Quick Look.
+- Swipe left or right for the next or previous file in the list, in the order shown.
+- **Send to** *(the other pane's address)* copies the item there in one tap, the same as Copy and Paste. **Share** opens the share sheet.
+- **ⓘ Info** shows the name, kind, size, dates and where the item is.
+  - Photos add dimensions, camera, lens, focal length, aperture, shutter speed, ISO, date taken and location.
+  - Videos add duration, resolution and frame rate.
+  - For a folder (long-press, then **Info**), it shows the total size and how many files and folders it holds.
+
+### Copy, Cut, Paste and Send
+
+- Tap ✓ at the top of a pane to show the selection circles, tick items, then tap **Copy** or **Cut**. In the other pane, tap **Paste here**. Tap ✓ again to hide the circles and clear the ticks. The ⋯ menu also has **Select visible items** and **Clear selection**.
+- **Cut** moves the items. Inside one storage area (such as On My iPhone), it only renames. Elsewhere it copies and then deletes the original. Photos, archives and selected files can only be copied.
+- Copies go straight into the destination under a hidden `.NX-` name and get their real name when complete. On the same drive, files are cloned instantly; elsewhere they're copied in 4 MB chunks.
+- When a name is taken, choose **Replace**, **Keep both** (adds a number) or **Skip**, the same for all remaining items, or **Stop**.
+- The bar under the panes shows MB and percent and has **Cancel**. You can keep browsing while it runs. Only panes that show a changed folder reload, and they keep their scroll position.
+- Long-press an item for **Send to** *(the other pane's address)*, **Share**, **Info**, **Rename**, **Delete…**, **Extract here** and **Create ZIP**. Send isn't offered when the other pane shows Photos, iCloud Drive, Selected files, an archive or the item's own folder.
+
+### Archives
+
+- Tap a ZIP, RAR, TAR, TGZ (.tar.gz) or ISO file to browse it like a folder without extracting it. Files inside open in the viewer, and Copy then Paste unpacks only the selected items. Archives are read-only.
+- In App files, a Files folder or at the top of On My iPhone or iCloud Drive, long-press an archive for **Extract here**, or a file or folder for **Create ZIP**. If the name is taken, a number is added.
+- **Compress selected items…** in the ⋯ menu puts all ticked items into one ZIP that you name.
+- Not supported: 7z, password-protected archives, encrypted or multipart RAR, archives on a Windows share, archives inside archives, and making RAR files.
+
+### Search
+
+- **Search this location** filters the loaded list as you type.
+- Tick **Subfolders** to also search every folder below. This works in App files, Files folders, On My iPhone and iCloud Drive (with their added app folders), Windows shares and archives, and shows the first 500 matches.
+- Results show the folder they're in. Tap one to open it, long-press for Send, Share, Info or **Show in folder**, or tick results for Copy and Cut.
+
+### Saving files from other apps
+
+- In another app's share sheet, choose Newexplorer (Open in or Copy to). A sheet asks where to save: **App files**, or the location shown in pane A or B when it can take the files. Photos takes only images and videos.
+- iOS's temporary Inbox copy is removed afterwards.
+
+### Reopening where you were
+
+- After a relaunch, each pane reopens in the exact folder it showed. This covers App files, its Files folder, On My iPhone and iCloud Drive with their app folders, Photos folders (when access was already given) and remembered Windows shares.
+- Selected files last only until the app closes.
+- Each pane also remembers its sort order, and the app remembers Tab mode and the open tab.
+
+### Lists, sorting and tools
+
+- Each row shows a thumbnail or a type icon, the name, and below it the date and time and the size. Photos show the date and time taken.
+- Photos, videos and PDFs on this iPhone get a Quick Look thumbnail, and Photos items show their own picture. Other files show an icon for their type.
+- The ⋯ pane menu has:
+  - **Refresh** and **Show hidden files**
+  - **Sort by** Name, Date, Size or Kind. Pick the current order again to reverse it.
+  - **Select visible items** and **Clear selection**
+  - **Compress selected items…**, **New folder** and **Delete selected…** (asks first)
+  - **Find duplicates and empty folders**
+- Folders stay on top, and each pane keeps its own order. Photos keeps its own order: newest first by default, and no Size.
+- Long-press an item to rename or delete it.
+- The ⚙︎ menu shows the version and has **Clear temporary transfer files**.
+
+### Storage review
+
+- **Find duplicates and empty folders** (in App files and Files folders) lists files with identical contents (same size and SHA-256), the space their extra copies take, and empty folders.
+- It only reports. Delete the copies you don't want in the browser. Identical contents alone don't tell you which copy is safe to delete, and a scan can download cloud files.
+
+## Permissions
+
+| Permission | Used for |
+|---|---|
+| Photos | Browsing and copying photos and videos, with full or selected access |
+| Add to Photos | Saving pasted images and videos into Photos |
+| Local Network | Finding computers and drives on your Wi-Fi, and connecting to a share |
+| Files | Each folder or file you open in the Files picker is its own grant |
+
+## Signing and the bundle ID
+
+The IPA built here is unsigned. Sign it with your own certificate and provisioning profile, for example with a signing service such as KravaSigner, an on-device signer or Xcode. The signer must also sign the embedded `AMSMB2.framework`.
+
+### The bundle ID must match your profile's App ID
+
+The source code uses the placeholder bundle ID `com.example.newexplorer`. A provisioning profile is made for one App ID, for example `com.yourname.newexplorer`. If the IPA's bundle ID differs from that App ID, the signed app still installs and opens, but iOS doesn't hand it the files and folders you pick in Files:
+
+- In the Files picker, **Open** does nothing. iOS can't resolve the picked item for the app (error 257, no permission) and drops the pick.
+- Folders you opened in Files don't reopen after a relaunch.
+
+This is the problem we hit while building Newexplorer. Picks from Files failed on the iPhone until the bundle ID was set to exactly the App ID of the signing profile (version 0.3.0).
+
+To find your App ID: it's the App ID (bundle ID) of your provisioning profile. Signing services usually show it with the certificate. In a `.mobileprovision` file, it's the `application-identifier` value after the team ID and the first dot.
+
+### How to get a working app
+
+| Way | What to do | When it works |
+|---|---|---|
+| 1. Build with your App ID (recommended) | GitHub: add the repository secret `BUNDLE_ID` (steps below). Xcode: generate the project with your App ID, see [Xcode](#xcode). | Always |
+| 2. Let the signer change it | When signing, set the app's bundle ID to exactly the profile's App ID: same spelling, no extra suffix. | If your signer can change the bundle ID |
+| 3. Use a wildcard profile | A profile whose App ID ends in `*`, such as `com.yourname.*`, accepts any bundle ID that fits the pattern. | If you have a wildcard profile |
+
+To add the `BUNDLE_ID` secret on GitHub:
+
+1. Open your repository on github.com, then **Settings** › **Secrets and variables** › **Actions**.
+2. Tap **New repository secret**.
+3. Name: `BUNDLE_ID`. Secret: your App ID, such as `com.yourname.newexplorer`.
+4. Tap **Add secret**. The next build on `main` uses it.
+
+Without the secret, the build shows the warning "The BUNDLE_ID secret is not set" and the IPA keeps the placeholder. The secret doesn't appear in the code or in the build logs. The IPA itself always contains its bundle ID.
+
+Keep the same bundle ID for every update. iOS treats a different bundle ID as a different app: it installs next to the old one, and the old one keeps its App files, added folders and saved shares.
+
+## Building
+
+### GitHub Actions
+
+The workflow in `.github/workflows/simulator.yml` runs on every push and pull request:
+
+1. It builds the app for an iPhone simulator and runs 37 unit tests and 3 UI tests.
+2. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
+3. It uploads the artifact **Newexplorer-v0.8.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
+
+In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in a new fork until you turn them on in its **Actions** tab.
+
+### Xcode
+
+You need a Mac with Xcode 16 or later and an iPhone with iOS 17 or later. The workflow runs on GitHub's macOS 15 runner, which currently has Xcode 16.4.
+
+1. Clone the repository.
+2. In Terminal, in the repository folder, run this with your App ID:
+
+   ```sh
+   BUNDLE_ID=com.yourname.newexplorer python3 Scripts/generate_project.py
+   ```
+
+   It rewrites `Newexplorer.xcodeproj` with that bundle ID. Without `BUNDLE_ID`, it uses the placeholder.
+3. Open `Newexplorer.xcodeproj`, choose the **Newexplorer** scheme and your iPhone, pick your team under **Signing & Capabilities**, and run.
+
+Notes:
+
+- `Scripts/generate_project.py` generates the Xcode project, so make lasting project changes there. Running it again overwrites `project.pbxproj`.
+- The version and build numbers are set in `Scripts/generate_project.py` and checked by `Scripts/package_ipa.py`.
+- Xcode resolves three Swift packages:
+  - AMSMB2 4.0.3 for Windows shares (LGPL-2.1)
+  - ZIPFoundation 0.9.20 for making ZIPs (MIT)
+  - LibArchive 0.1.6 for reading archives (BSD)
+
+  Their licenses are in `App/ThirdPartyNotices.txt`, which ships inside the app.
+
+## Tests
+
+- **Unit tests (37)** cover:
+  - copying, streaming and cancelling, name conflicts, moves and unique names
+  - folder Info, ZIPs, archive browsing and extraction
+  - the On My iPhone and iCloud Drive lists and their deletes, and picked files
+  - sorting, the Send rule, Photos folders and export names, and Info formatting
+  - saved shares, NetBIOS names and the Wi-Fi scan
+  - subfolder search, reopening the exact folder, receiving files, file icons and the storage scan
+- **UI tests (3)** cover:
+  - empty panes, the Windows connection form and the Photos permission request
+  - picking folders and files in Files, and relaunching
+  - Photos folders, the viewer (swipe, Info, Send), Cut, long-press Info and archives
+- The Files picker and Photos UI tests run and are reported, but they don't block the build. In the current simulator, the Files picker drops picks and the Photos library hangs, and the 0.6.0 code fails both the same way. Check those on an iPhone.
+
+## Limits and known issues
+
+- Keep the app open during large transfers, because iOS can pause it in the background.
+- A transfer stopped by closing the app or losing Wi-Fi can leave a hidden `.NX-` item in the destination. Turn on **Show hidden files** to see and delete it. **Clear temporary transfer files** removes only the app's own temporary transfer files.
+- Deleting is permanent outside Photos, so check the location and the ticked items first.
+- iOS gives each app folder in On My iPhone and iCloud Drive as its own grant, so add each one once.
+- Find devices doesn't find a PC whose firewall blocks file sharing. Type its name or IP address instead.
+- Drag and drop between panes isn't included. With it, taps, long presses and the Files picker failed in every simulator test run.
+
+## Version history
+
+### 0.8.0 (build 11)
+
+- **Tab mode**: one pane over the whole screen, with a Chrome-style tab for each pane at the bottom. Switch with the button next to the gear.
+- **Address bar** with the full path, such as `On My iPhone/Downloads/Documents`, `MSI/shared` or `Photos/Others`. Tap a part to go back to it, and the icon before it opens the location menu. It replaces the A and B pane letters.
+- Rows show the date and time for files and photos, plus the size for files.
+- **Send to** names the destination's address instead of the pane letter.
+- Windows shares show the PC's name. The IP address appears only in Find devices.
+- Build: the Files picker and Photos UI tests are reported but no longer block the build.
+- Source: the bundle ID is a placeholder, and builds take yours from the `BUNDLE_ID` secret.
+
+### 0.7.0 (build 10)
+
+- Thumbnails for photos, videos and PDFs on this iPhone, and type icons for every other file.
+- **Remember this share**: saved shares appear in the location menus and the Windows sheet, with the password in the Keychain. Swipe to forget one.
+- Files on a Windows share open in the viewer after downloading and can be swiped.
+- Search can include subfolders (first 500 matches). Results keep their folder for opening, Copy, Cut, Send, Share, Info and Show in folder.
+- Files from other apps (Open in, Copy to) can be saved where you choose.
+- Each pane reopens in the exact folder after a relaunch.
+- **Find devices** (Bonjour, plus a port 445 scan of the Wi-Fi with NetBIOS names) and **Show shared folders**.
+- Drag and drop between panes was tried and left out.
+
+### 0.6.0 (build 9)
+
+- Copies go straight into the destination: cloned on the same drive, streamed in 4 MB chunks elsewhere. Extract here and Create ZIP write next to the item without a temporary copy.
+- **Cut** and Paste move items.
+- Name conflicts ask Replace, Keep both or Skip, with "for all" choices, or Stop.
+- A transfer bar shows MB and percent and has Cancel, and the panes stay usable.
+- Only panes that show a changed location reload, in place.
+- Long-press: Send to the other pane, Share and Info (folders show total size and item counts). Extract here works for every browsable archive type, also at the top of On My iPhone and iCloud Drive. **Compress selected items** makes one ZIP.
+- Photos: the date order comes from Photos for the whole folder. Name and Kind sorting and search load the whole folder.
+- Deleting a mixed selection at the top of On My iPhone or iCloud Drive deletes the top-level items and reports the skipped app folders.
+- Selected files show their size and date. Lists are sorted once per change.
+
+### 0.5.1 (build 8)
+
+- **Pictures** holds camera shots, and the new **Others** folder holds every other image. Neither includes screenshots.
+- **Show more photos** adds the next 150 and keeps your place.
+
+### 0.5.0 (build 7)
+
+- Photos opens to folders: All, Pictures, Videos, Screenshots and one per album. Pasting into an album folder adds the item to that album.
+- The viewer swipes through the list and shows **Info**, with camera data for photos and details for videos.
+- ZIP, RAR, TAR, TGZ and ISO archives open like read-only folders.
+
+### 0.4.0 (build 6)
+
+- Photos, videos and files open in Newexplorer's viewer, with Close, Share and **Send to** the other pane.
+- Photos copy as Photos shows them: the edited version, and the still image of a Live Photo.
+- **Sort by** Name, Date, Size or Kind, remembered per pane.
+- The ✓ button shows or hides the selection circles.
+
+### 0.3.0 (build 5)
+
+- **On My iPhone** and **iCloud Drive** as combined lists: the top-level items plus app folders you add once. The lists are kept across relaunches and show real names. iCloud files that aren't downloaded still show and download when needed.
+- Files picks work on the iPhone: the bundle ID was set to the signing profile's App ID (see [Signing and the bundle ID](#signing-and-the-bundle-id)). **Browse Files locations** opens the original files again instead of copies.
+
+### 0.2.0 to 0.2.2 (builds 2 to 4)
+
+- 0.2.2: **Open a folder in this pane** and **Browse Files locations**. Each pane remembers its confirmed folder (**Reopen**). Later fixes on 0.2.2:
+  - The Files app's own listing opens when a provider returns an empty folder.
+  - Picked files come back as copies so Open always delivers them. 0.3.0 replaced this.
+- 0.2.1: empty panes offer the folder, Photos and Windows choices. Adds **Show hidden files**, and **Open Settings** when Photos access is limited.
+- 0.2.0: New folder, Rename, Delete, Delete selected, selection controls and **Clear temporary transfer files**. Adds the app icon and the first unsigned IPA built by GitHub Actions.
+
+### First builds
+
+- Two panes with the app's own folder, a chosen folder, Photos and Windows shares.
+- Copy and Paste between the panes, search, Create ZIP, and the review of duplicate files and empty folders.
+- ZIP and RAR extraction.
