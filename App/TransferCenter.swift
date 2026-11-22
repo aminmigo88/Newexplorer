@@ -40,7 +40,8 @@ final class TransferCenter: ObservableObject {
     private var total: Int64?
     private var verb = ""
 
-    func start(_ items: [Entry], from origin: Location, to destination: Location, move: Bool,
+    // homes gives the folder of items found by a search inside subfolders; other items come from origin.
+    func start(_ items: [Entry], from origin: Location, homes: [String: Location] = [:], to destination: Location, move: Bool,
                finished: @escaping @MainActor (Report) -> Void) {
         guard !running, !items.isEmpty else { return }
         running = true
@@ -56,7 +57,7 @@ final class TransferCenter: ObservableObject {
         let meter = self.meter
         Task {
             var report = Report()
-            total = await Transfer.plannedBytes(items, from: origin)
+            total = await Self.planned(items, from: origin, homes: homes)
             let ticker = Task { [weak self] in
                 while !Task.isCancelled {
                     self?.showProgress()
@@ -72,7 +73,7 @@ final class TransferCenter: ObservableObject {
                     await self?.ask(name, place: place, more: more) ?? .stop
                 })
                 do {
-                    if try await Transfer.run(item, from: origin, to: destination, move: move, hooks: hooks) { report.done += 1 }
+                    if try await Transfer.run(item, from: homes[item.id] ?? origin, to: destination, move: move, hooks: hooks) { report.done += 1 }
                     else { report.skipped += 1 }
                 } catch is TransferStopped {
                     report.stopped = true
@@ -92,6 +93,16 @@ final class TransferCenter: ObservableObject {
             running = false
             finished(report)
         }
+    }
+
+    private static func planned(_ items: [Entry], from origin: Location, homes: [String: Location]) async -> Int64? {
+        guard !homes.isEmpty else { return await Transfer.plannedBytes(items, from: origin) }
+        var total: Int64 = 0
+        for item in items {
+            guard let bytes = await Transfer.plannedBytes([item], from: homes[item.id] ?? origin) else { return nil }
+            total += bytes
+        }
+        return total
     }
 
     func cancel() {

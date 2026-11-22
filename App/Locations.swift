@@ -60,6 +60,7 @@ final class Share {
     let client: SMB2Manager
     let name: String
     let host: String
+    let user: String
     init(host: String, share: String, user: String, password: String) throws {
         var parts = URLComponents()
         parts.scheme = "smb"
@@ -70,7 +71,20 @@ final class Share {
         else { throw ExplorerError("Enter a computer name or IP address, share name and username.") }
         self.client = client
         self.host = host
+        self.user = user
         self.name = try safeName(share)
+    }
+    // The shared folders a computer offers to this account, without the hidden ones that end in $.
+    static func list(host: String, user: String, password: String) async throws -> [String] {
+        var parts = URLComponents()
+        parts.scheme = "smb"
+        parts.host = host
+        guard !host.isEmpty, !host.contains("/"), !user.isEmpty, let url = parts.url,
+              let client = SMB2Manager(url: url, credential: URLCredential(user: user, password: password, persistence: .forSession))
+        else { throw ExplorerError("Enter a computer name or IP address and username.") }
+        let shares = try await client.listShares()
+        return shares.map { $0.name }.filter { !$0.hasSuffix("$") && (try? safeName($0)) != nil }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
     func entries(_ path: String) async throws -> [Entry] {
         try await client.contentsOfDirectory(atPath: path).compactMap { row in

@@ -102,6 +102,14 @@ final class Places: ObservableObject {
         return rows
     }
 
+    // The saved app folder a grant belongs to, so a pane can reopen it after a relaunch.
+    func savedID(for grant: FolderGrant, in place: Place) -> String? {
+        folders[place]?.first { $0.grant === grant }?.id
+    }
+    func folderGrant(id: String, in place: Place) -> FolderGrant? {
+        folders[place]?.first { $0.id == id }?.grant
+    }
+
     func location(for row: Entry, in place: Place) -> Location? {
         guard let url = row.url else { return nil }
         switch row.placeRole {

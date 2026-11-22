@@ -24,9 +24,9 @@ jobs:
             -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO || status=$?
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
             --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' \
-            | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone' || true
+            | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone|Picking|Open button|Picker still|Step:' || true
           [ "$status" -eq 0 ] || exit "$status"
-          xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 32, result'
+          xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | python3 -c 'import json,sys; result=json.load(sys.stdin); assert result["skippedTests"] == 0 and result["passedTests"] >= 40, result'
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
             --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' | grep 'Local root .* Open'
       - name: Report simulator test failures
@@ -34,6 +34,14 @@ jobs:
         run: |
           if [ -d SimulatorTests.xcresult ]; then
             xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult
+            # The steps each failed test went through, so the report shows where it stopped.
+            failed=$(xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult \
+              | python3 -c 'import json,sys; print("\n".join(f["testIdentifierString"] for f in json.load(sys.stdin).get("testFailures", [])))')
+            for id in $failed; do
+              echo "== Steps of $id"
+              xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult --test-id "$id" \
+                | grep -o '"title" : "[^"]*"' | grep -vE 'Synthesize|Wait for|Find the|Check for|Requesting snapshot|Get all elements|Snapshot accessibility' | tail -40 || true
+            done
           fi
       - name: Build unsigned iPhone app
         if: github.ref == 'refs/heads/main'
@@ -47,7 +55,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          name: Newexplorer-v0.6.0-unsigned
+          name: Newexplorer-v0.7.0-unsigned
           path: |
             output/*.ipa
             output/SHA256.txt
