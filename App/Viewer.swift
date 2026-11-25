@@ -65,6 +65,11 @@ final class ViewerModel: ObservableObject {
     private func content(for entry: Entry) async throws -> PageContent {
         if isPhotos { return try await photoContent(entry) }
         let url = try await file(for: entry)
+        // DXF drawings open in Newexplorer's own drawing viewer; pictures they use are looked for next to them.
+        if DXFDrawing.handles(url.lastPathComponent) {
+            let drawing = try await Task.detached(priority: .userInitiated) { try DXFDrawing.load(url) }.value
+            return .drawing(drawing, sourceFolder(for: entry))
+        }
         if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .audiovisualContent) {
             return .video(AVPlayerItem(url: url))
         }
@@ -314,6 +319,7 @@ enum PageContent {
     case file(URL)
     case image(UIImage)
     case video(AVPlayerItem)
+    case drawing(DXFDrawing, URL?)
     case failure(String)
 }
 
@@ -364,6 +370,8 @@ final class PageController: UIViewController {
             embed(preview)
         case let .image(image):
             embed(ZoomImageController(image: image))
+        case let .drawing(drawing, folder):
+            embed(DXFViewController(drawing: drawing, folder: folder))
         case let .video(item):
             let controller = AVPlayerViewController()
             let player = AVPlayer(playerItem: item)
