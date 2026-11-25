@@ -70,6 +70,11 @@ final class ViewerModel: ObservableObject {
             let drawing = try await Task.detached(priority: .userInitiated) { try DXFDrawing.load(url) }.value
             return .drawing(drawing, sourceFolder(for: entry))
         }
+        // STL, OBJ and 3MF models open in the 3D view.
+        if Model3DFile.handles(url.lastPathComponent) {
+            let model = try await Task.detached(priority: .userInitiated) { try Model3DFile.load(url) }.value
+            return .model(model, sourceFolder(for: entry))
+        }
         if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .audiovisualContent) {
             return .video(AVPlayerItem(url: url))
         }
@@ -288,7 +293,7 @@ struct PagerView: UIViewControllerRepresentable {
                                          options: [.interPageSpacing: 16])
         pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
-        pager.setViewControllers([page(index)], direction: .forward, animated: false)
+        pager.setViewControllers([context.coordinator.make(index, in: pager)], direction: .forward, animated: false)
         return pager
     }
     func updateUIViewController(_ pager: UIPageViewController, context: Context) {
@@ -299,13 +304,36 @@ struct PagerView: UIViewControllerRepresentable {
     final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
         var parent: PagerView
         init(_ parent: PagerView) { self.parent = parent }
+        func make(_ index: Int, in pager: UIPageViewController) -> PageController {
+            let page = parent.page(index)
+            page.count = parent.count
+            page.step = { [weak self, weak pager] delta in
+                guard let self, let pager else { return }
+                self.go(delta, in: pager)
+            }
+            return page
+        }
+        // Moves to a neighbouring file without a swipe, for the 3D view's ‹ › buttons.
+        // Taps during the slide are ignored, because a second slide on top of the first can crash the pager.
+        private var moving = false
+        func go(_ delta: Int, in pager: UIPageViewController) {
+            guard !moving, let current = pager.viewControllers?.first as? PageController else { return }
+            let target = current.index + delta
+            guard target >= 0, target < parent.count else { return }
+            moving = true
+            pager.setViewControllers([make(target, in: pager)], direction: delta > 0 ? .forward : .reverse,
+                                     animated: true) { [weak self] _ in
+                self?.moving = false
+            }
+            parent.index = target
+        }
         func pageViewController(_ pager: UIPageViewController, viewControllerBefore controller: UIViewController) -> UIViewController? {
             guard let current = controller as? PageController, current.index > 0 else { return nil }
-            return parent.page(current.index - 1)
+            return make(current.index - 1, in: pager)
         }
         func pageViewController(_ pager: UIPageViewController, viewControllerAfter controller: UIViewController) -> UIViewController? {
             guard let current = controller as? PageController, current.index + 1 < parent.count else { return nil }
-            return parent.page(current.index + 1)
+            return make(current.index + 1, in: pager)
         }
         func pageViewController(_ pager: UIPageViewController, didFinishAnimating finished: Bool,
                                 previousViewControllers: [UIViewController], transitionCompleted completed: Bool) {
@@ -320,11 +348,15 @@ enum PageContent {
     case image(UIImage)
     case video(AVPlayerItem)
     case drawing(DXFDrawing, URL?)
+    case model(Model3DContent, URL?)
     case failure(String)
 }
 
 final class PageController: UIViewController {
     let index: Int
+    // How many files the viewer has, and how to move to a neighbour; set by the pager.
+    var count = 1
+    var step: ((Int) -> Void)?
     private let load: () async -> PageContent
     private var task: Task<Void, Never>?
     private var player: AVPlayer?
@@ -372,6 +404,8 @@ final class PageController: UIViewController {
             embed(ZoomImageController(image: image))
         case let .drawing(drawing, folder):
             embed(DXFViewController(drawing: drawing, folder: folder))
+        case let .model(model, folder):
+            embed(Model3DViewController(content: model, folder: folder))
         case let .video(item):
             let controller = AVPlayerViewController()
             let player = AVPlayer(playerItem: item)
@@ -391,6 +425,12 @@ final class PageController: UIViewController {
                                          label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24)])
         }
     }
+    // A 3D view takes one-finger drags, so swiping between files is off while it shows.
+    func lockPaging(_ locked: Bool) {
+        guard let pager = parent as? UIPageViewController else { return }
+        for case let scroll as UIScrollView in pager.view.subviews { scroll.isScrollEnabled = !locked }
+    }
+
     private func embed(_ child: UIViewController) {
         addChild(child)
         child.view.frame = view.bounds
