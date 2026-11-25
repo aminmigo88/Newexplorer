@@ -361,8 +361,8 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.8.1";
-				"CURRENT_PROJECT_VERSION" = "12";
+				"MARKETING_VERSION" = "0.8.2";
+				"CURRENT_PROJECT_VERSION" = "13";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_FILE" = "App/Info.plist";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Newexplorer";
@@ -384,8 +384,8 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.8.1";
-				"CURRENT_PROJECT_VERSION" = "12";
+				"MARKETING_VERSION" = "0.8.2";
+				"CURRENT_PROJECT_VERSION" = "13";
 				"ASSETCATALOG_COMPILER_APPICON_NAME" = "AppIcon";
 				"INFOPLIST_FILE" = "App/Info.plist";
 				"INFOPLIST_KEY_CFBundleDisplayName" = "Newexplorer";
@@ -497,8 +497,8 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.8.1";
-				"CURRENT_PROJECT_VERSION" = "12";
+				"MARKETING_VERSION" = "0.8.2";
+				"CURRENT_PROJECT_VERSION" = "13";
 				"TEST_HOST" = "$(BUILT_PRODUCTS_DIR)/Newexplorer.app/Newexplorer";
 				"BUNDLE_LOADER" = "$(TEST_HOST)";
 			};
@@ -512,8 +512,8 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.8.1";
-				"CURRENT_PROJECT_VERSION" = "12";
+				"MARKETING_VERSION" = "0.8.2";
+				"CURRENT_PROJECT_VERSION" = "13";
 				"TEST_HOST" = "$(BUILT_PRODUCTS_DIR)/Newexplorer.app/Newexplorer";
 				"BUNDLE_LOADER" = "$(TEST_HOST)";
 			};
@@ -597,8 +597,8 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.8.1";
-				"CURRENT_PROJECT_VERSION" = "12";
+				"MARKETING_VERSION" = "0.8.2";
+				"CURRENT_PROJECT_VERSION" = "13";
 				"TEST_TARGET_NAME" = "Newexplorer";
 			};
 		};
@@ -611,8 +611,8 @@
 				"GENERATE_INFOPLIST_FILE" = "YES";
 				"CODE_SIGN_STYLE" = "Automatic";
 				"LD_RUNPATH_SEARCH_PATHS" = ("$(inherited)","@executable_path/Frameworks","@loader_path/Frameworks",);
-				"MARKETING_VERSION" = "0.8.1";
-				"CURRENT_PROJECT_VERSION" = "12";
+				"MARKETING_VERSION" = "0.8.2";
+				"CURRENT_PROJECT_VERSION" = "13";
 				"TEST_TARGET_NAME" = "Newexplorer";
 			};
 		};

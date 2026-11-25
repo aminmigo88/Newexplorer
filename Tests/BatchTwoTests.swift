@@ -21,6 +21,29 @@ final class BatchTwoTests: XCTestCase {
         XCTAssertNil(SavedShares.shared.password(for: item))
     }
 
+    func testSharePathsCompareLikeWindows() {
+        XCTAssertTrue(Share.samePath("/Docs/Old", "/docs/old/"))
+        XCTAssertFalse(Share.samePath("/Docs/Old", "/Docs/Older"))
+        XCTAssertTrue(Share.isInside("/Docs/Old/Sub", "/docs/old"))
+        XCTAssertFalse(Share.isInside("/Docs/Older", "/Docs/Old"))
+        XCTAssertFalse(Share.isInside("/Docs/Old", "/Docs/Old"))
+        XCTAssertTrue(Share.isInside("/Docs", "/"))
+    }
+
+    func testTwoConnectionsToOneShareAreTheSamePlace() async throws {
+        let first = try Share(host: "LAPTOP.local", share: "Docs", user: "amin", password: "secret")
+        let second = try Share(host: "laptop.local", share: "docs", user: "guest", password: "")
+        let music = try Share(host: "laptop.local", share: "Music", user: "amin", password: "secret")
+        let byName = try Share(host: "localhost", share: "Docs", user: "amin", password: "secret")
+        let byAddress = try Share(host: "127.0.0.1", share: "Docs", user: "amin", password: "secret")
+        let same = await Share.samePlace(first, second)
+        let different = await Share.samePlace(first, music)
+        let nameAndAddress = await Share.samePlace(byName, byAddress)
+        XCTAssertTrue(same)
+        XCTAssertFalse(different)
+        XCTAssertTrue(nameAndAddress)
+    }
+
     func testNetBIOSNameQueryAndAnswer() {
         let query = [UInt8](LocalNetwork.netbiosQuery())
         XCTAssertEqual(query.count, 50)

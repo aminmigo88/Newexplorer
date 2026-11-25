@@ -102,6 +102,28 @@ enum LocalNetwork {
 
     static func isAddress(_ host: String) -> Bool { IPv4Address(host) != nil || IPv6Address(host) != nil }
 
+    // The addresses a computer name or address stands for, such as 192.168.1.5 for laptop.local.
+    static func addresses(_ host: String) async -> Set<String> {
+        await Task.detached {
+            var hints = addrinfo()
+            hints.ai_family = AF_UNSPEC
+            hints.ai_socktype = SOCK_STREAM
+            var list: UnsafeMutablePointer<addrinfo>?
+            guard getaddrinfo(host, nil, &hints, &list) == 0, let first = list else { return [] }
+            defer { freeaddrinfo(first) }
+            var found = Set<String>()
+            var node: UnsafeMutablePointer<addrinfo>? = first
+            while let current = node {
+                var text = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                if getnameinfo(current.pointee.ai_addr, current.pointee.ai_addrlen, &text, socklen_t(text.count), nil, 0, NI_NUMERICHOST) == 0 {
+                    found.insert(String(cString: text))
+                }
+                node = current.pointee.ai_next
+            }
+            return found
+        }.value
+    }
+
     // Port 445 first; a PC that answers is then asked for its name.
     static func probe(_ host: String) async -> (String, Bool, String?) {
         guard await isOpen(host, port: 445) else { return (host, false, nil) }
