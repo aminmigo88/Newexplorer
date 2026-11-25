@@ -1,8 +1,8 @@
 # Newexplorer
 
-A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, DXF drawings open in a drawing viewer, and a storage review finds duplicate files and empty folders.
+A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, DXF drawings open in a drawing viewer, STL, OBJ and 3MF models open in a 3D view, and a storage review finds duplicate files and empty folders.
 
-**Version 0.9.0 (build 14)** · iPhone with iOS 17 or later · SwiftUI
+**Version 0.10.0 (build 15)** · iPhone with iOS 17 or later · SwiftUI
 
 > [!IMPORTANT]
 > The app's bundle ID must be exactly the App ID in your signing profile. If it isn't, the app installs but can't use the files and folders you pick in Files. See [Signing and the bundle ID](#signing-and-the-bundle-id).
@@ -89,7 +89,7 @@ What you can do in each:
 ### Viewer and Info
 
 - Tap a file, photo or video to open it. Photos fit the screen and zoom with two fingers or a double tap. Videos play in the system player, and other files open in Quick Look.
-- Swipe left or right for the next or previous file in the list, in the order shown.
+- Swipe left or right for the next or previous file in the list, in the order shown. In the 3D view, use the ‹ › buttons instead.
 - **Send to** *(the other pane's address)* copies the item there in one tap, the same as Copy and Paste. **Share** opens the share sheet.
 - **ⓘ Info** shows the name, kind, size, dates and where the item is.
   - Photos add dimensions, camera, lens, focal length, aperture, shutter speed, ISO, date taken and location.
@@ -101,6 +101,7 @@ What you can do in each:
 - Tap a `.dxf` file anywhere: on the iPhone, in a Files folder, on a Windows share or inside an archive. It opens in Newexplorer's drawing viewer, fitted to the screen.
 - Pinch or double-tap to zoom, and drag to move around. Lines stay thin at every zoom, while dashes, text and pictures grow with the drawing. When it isn't zoomed, swipe to the next file as usual.
 - The main drawing shows its size underneath, such as "120 × 80 mm", in the units the file names ("units" when it names none).
+- The **2D | 3D** switch at the top right turns the main drawing around in 3D, with the same moves as [3D models](#3d-models). Layouts show in 2D.
 - The sheet button at the top left switches between the main drawing (**Model**) and each layout. A layout's windows show the main drawing at their own scale, without the layers frozen in that window.
 - Colors are the file's. The background is white in light mode and black in dark mode, and white lines in the drawing (color 7) show black on white.
 - Pictures in a drawing are looked for by file name in the drawing's folder. When one isn't there, a frame with its name shows instead.
@@ -114,12 +115,27 @@ What you can do in each:
 | Hatches | ✅ solid and gradient ones filled, patterned ones as outlines |
 | Layer and object colors, line types (dashes and dots) and line weights | ✅ hidden and frozen layers left out |
 | Layouts with rectangular windows | ✅ |
-| Meshes, polyface meshes and 3D faces | ✅ as outlines seen from the top |
+| Meshes, polyface meshes and 3D faces | ✅ as outlines in 2D, as surfaces in 3D |
 | Pictures | ⚠️ only when the picture file is in the same folder |
 | Binary DXF files | ✅ |
 | Line types with text or symbols inside them (like "GAS" lines) | ⚠️ drawn as solid lines |
-| 3D drawings | ⚠️ seen from the top only |
+| 3D drawings | ✅ turned around with the 2D \| 3D switch; in 3D, lines are thin and solid |
 | 3D solids, multileaders, DWG files | ❌ |
+
+### 3D models
+
+- Tap a `.stl`, `.obj` or `.3mf` file anywhere: on the iPhone, in a Files folder, on a Windows share or inside an archive. It opens in Newexplorer's 3D view, fitted to the screen and seen from the front, a little from above.
+- One finger turns the model, two fingers move it, pinch zooms, and double-tap fits it back.
+- One finger turns the model, so swiping to the next file is off in the 3D view. The ‹ and › buttons at the sides go to the previous and next file.
+- Files up to 500 MB and 6 million triangles open.
+
+| File | Shown |
+|---|---|
+| STL, binary and text | ✅ in light gray-blue |
+| 3MF, including objects made of parts in other files (as slicers save them) | ✅ |
+| 3MF colors | ⚠️ the colors stored in the model; filament colors a slicer keeps in its own settings aren't used, so those parts show in light gray-blue |
+| OBJ | ✅ with its materials and textures when their files are in the same folder |
+| STEP/STP and IGES/IGS | ❌ not yet |
 
 ### Copy, Cut, Paste and Send
 
@@ -224,9 +240,9 @@ Keep the same bundle ID for every update. iOS treats a different bundle ID as a 
 
 The workflow in `.github/workflows/simulator.yml` runs on every push and pull request:
 
-1. It builds the app for an iPhone simulator and runs 47 unit tests and 3 UI tests.
+1. It builds the app for an iPhone simulator and runs 51 unit tests and 3 UI tests.
 2. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
-3. It uploads the artifact **Newexplorer-v0.9.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
+3. It uploads the artifact **Newexplorer-v0.10.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
 
 In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in a new fork until you turn them on in its **Actions** tab.
 
@@ -257,7 +273,7 @@ Notes:
 
 ## Tests
 
-- **Unit tests (47)** cover:
+- **Unit tests (51)** cover:
   - copying, streaming and cancelling, name conflicts, moves and unique names
   - folder Info, ZIPs, archive browsing and extraction
   - the On My iPhone and iCloud Drive lists and their deletes, and picked files
@@ -265,6 +281,7 @@ Notes:
   - saved shares, NetBIOS names and the Wi-Fi scan
   - share paths, and two connections to the same share
   - DXF drawings: text and binary files, blocks, layers, line types, curves, hatches, text codes, pictures, layouts and the size
+  - 3D models: binary and text STL, 3MF parts, moves and colors, OBJ files, and DXF drawings in 3D
   - subfolder search, reopening the exact folder, receiving files, file icons and the storage scan
 - **UI tests (3)** cover:
   - empty panes, the Windows connection form and the Photos permission request
@@ -280,9 +297,16 @@ Notes:
 - iOS gives each app folder in On My iPhone and iCloud Drive as its own grant, so add each one once.
 - Find devices doesn't find a PC whose firewall blocks file sharing. Type its name or IP address instead.
 - Drag and drop between panes isn't included. With it, taps, long presses and the Files picker failed in every simulator test run.
-- DXF drawings are shown from the top; turning them around in 3D isn't there yet. 3D solids, multileaders and DWG files can't be shown.
+- In 3D, lines are thin and solid: dashes and line widths show only in 2D. DXF 3D solids, multileaders and DWG files can't be shown, and STEP and IGES files aren't supported yet.
 
 ## Version history
+
+### 0.10.0 (build 15)
+
+- **3D view**: STL, OBJ and 3MF models open in a 3D view. One finger turns the model, two fingers move it, pinch zooms, and double-tap fits it back.
+- In the 3D view, swiping is off; the ‹ › buttons go to the previous and next file.
+- DXF drawings get a **2D | 3D** switch for the main drawing. 3D faces and meshes show as surfaces.
+- 3MF objects made of parts in other files, as slicers save them, with their moves and colors.
 
 ### 0.9.0 (build 14)
 

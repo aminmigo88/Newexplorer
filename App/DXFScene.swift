@@ -32,6 +32,13 @@ struct DXFDot {
     var layer: String
 }
 
+// A flat face of a 3D surface (3D faces and meshes); the 2D view draws its edges, the 3D view the face.
+struct DXFFace {
+    var corners: [DXFVec]
+    var ink: DXFInk
+    var layer: String
+}
+
 // Text: its lines, where it sits and which way it runs, in the drawing's units.
 struct DXFLabel {
     var text: String
@@ -91,11 +98,14 @@ struct DXFScene {
     var paths: [DXFPath] = []
     var fills: [DXFFill] = []
     var dots: [DXFDot] = []
+    var faces: [DXFFace] = []
     var labels: [DXFLabel] = []
     var pictures: [DXFPicture] = []
     var box = DXFBox()
 
-    var isEmpty: Bool { paths.isEmpty && fills.isEmpty && dots.isEmpty && labels.isEmpty && pictures.isEmpty }
+    var isEmpty: Bool {
+        paths.isEmpty && fills.isEmpty && dots.isEmpty && faces.isEmpty && labels.isEmpty && pictures.isEmpty
+    }
 }
 
 // A window in a layout onto the main drawing, seen from the top.
@@ -389,6 +399,15 @@ struct DXFSceneBuilder {
         scene.fills.append(DXFFill(rings: usable, ink: p.ink, layer: p.layer))
     }
 
+    private mutating func face(_ corners: [DXFVec], _ p: Properties) {
+        var kept: [DXFVec] = []
+        for corner in corners where kept.last != corner { kept.append(corner) }
+        if kept.count > 1 && kept.first == kept.last { kept.removeLast() }
+        guard kept.count >= 3 else { return }
+        for corner in kept { scene.box.add(corner) }
+        scene.faces.append(DXFFace(corners: kept, ink: p.ink, layer: p.layer))
+    }
+
     private mutating func dot(_ point: DXFVec, _ p: Properties) {
         scene.box.add(point)
         scene.dots.append(DXFDot(point: point, ink: p.ink, layer: p.layer))
@@ -515,6 +534,8 @@ struct DXFSceneBuilder {
         for face in vertices where face.int(70) & 64 == 0 && face.int(70) & 128 != 0 {
             let indices = [71, 72, 73, 74].map { face.int($0) }.filter { $0 != 0 }
             guard indices.count >= 2 else { continue }
+            let positions = indices.map { abs($0) - 1 }
+            if positions.allSatisfy({ $0 < corners.count }) { self.face(positions.map { corners[$0] }, p) }
             for k in 0..<indices.count {
                 // A negative index hides the edge that starts there.
                 let from = indices[k], to = indices[(k + 1) % indices.count]
@@ -536,6 +557,17 @@ struct DXFSceneBuilder {
         }
         for column in 0..<columns {
             stroke((0..<rows).map { points[$0 * columns + column] }, closed: flags & 1 != 0, p)
+        }
+        // The faces between the lines; a closed mesh also joins its last row or column to the first.
+        let rowSpan = flags & 1 != 0 ? rows : rows - 1
+        let columnSpan = flags & 32 != 0 ? columns : columns - 1
+        for row in 0..<rowSpan {
+            let next = (row + 1) % rows
+            for column in 0..<columnSpan {
+                let right = (column + 1) % columns
+                face([points[row * columns + column], points[row * columns + right],
+                      points[next * columns + right], points[next * columns + column]], p)
+            }
         }
     }
 
@@ -636,6 +668,7 @@ struct DXFSceneBuilder {
         let third = e.point(12)
         let fourth = e.has(13) ? e.point(13) : third
         let corners = [e.point(10), e.point(11), third, fourth].map { m.apply($0) }
+        face(corners, p)
         let hidden = e.int(70)
         for k in 0..<4 where hidden & (1 << k) == 0 {
             let a = corners[k], b = corners[(k + 1) % 4]
@@ -664,6 +697,8 @@ struct DXFSceneBuilder {
                 let a = values[k + 1 + j], b = values[k + 1 + (j + 1) % sides]
                 if a >= 0, b >= 0, a < vertices.count, b < vertices.count { stroke([vertices[a], vertices[b]], closed: false, p) }
             }
+            let corners = (0..<sides).map { values[k + 1 + $0] }
+            if corners.allSatisfy({ $0 >= 0 && $0 < vertices.count }) { face(corners.map { vertices[$0] }, p) }
             k += sides + 1
         }
     }

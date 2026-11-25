@@ -23,6 +23,8 @@ final class DXFViewController: UIViewController, UIScrollViewDelegate {
     private let scroll = UIScrollView()
     private let canvas = UIView()
     private let sheetButton = UIButton(type: .system)
+    private let modeSwitch = UISegmentedControl(items: ["2D", "3D"])
+    private var threeD: Model3DViewController?
     private let caption = UILabel()
     private var sheet = 0
     private var strokes: [Stroke] = []
@@ -69,7 +71,15 @@ final class DXFViewController: UIViewController, UIScrollViewDelegate {
         sheetButton.isHidden = drawing.sheets.count < 2
         view.addSubview(sheetButton)
 
+        modeSwitch.selectedSegmentIndex = 0
+        modeSwitch.translatesAutoresizingMaskIntoConstraints = false
+        modeSwitch.accessibilityIdentifier = "dxf-mode"
+        modeSwitch.addTarget(self, action: #selector(modeChanged), for: .valueChanged)
+        view.addSubview(modeSwitch)
+
         NSLayoutConstraint.activate([
+            modeSwitch.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -12),
+            modeSwitch.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             caption.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             caption.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -8),
             sheetButton.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
@@ -99,6 +109,9 @@ final class DXFViewController: UIViewController, UIScrollViewDelegate {
         let actions = drawing.sheets.indices.map { index in
             UIAction(title: drawing.sheets[index].name, state: index == sheet ? .on : .off) { [weak self] _ in
                 guard let self else { return }
+                // Layouts are sheets of paper, so they show in 2D.
+                self.modeSwitch.selectedSegmentIndex = 0
+                self.hide3D()
                 self.sheet = index
                 self.updateSheetMenu()
                 self.render()
@@ -149,6 +162,7 @@ final class DXFViewController: UIViewController, UIScrollViewDelegate {
         draw(current.scene, into: canvas.layer, transform: world, scale: k, hidden: [], foreground: foreground)
         caption.text = current.isModel ? drawing.sizeText : nil
         caption.isHidden = caption.text == nil
+        modeSwitch.isHidden = !current.isModel
         center()
         applyWidths()
     }
@@ -311,6 +325,41 @@ final class DXFViewController: UIViewController, UIScrollViewDelegate {
         parent.addSublayer(layer)
     }
 
+    // MARK: 2D and 3D
+
+    @objc private func modeChanged() {
+        if modeSwitch.selectedSegmentIndex == 1 { show3D() } else { hide3D() }
+    }
+
+    // The main drawing turned around in 3D, over the 2D view; the switch and the sheet button stay on top.
+    private func show3D() {
+        guard threeD == nil else { return }
+        let controller = Model3DViewController(content: .mesh(Model3D(dxf: drawing.model)), folder: folder)
+        addChild(controller)
+        controller.view.frame = view.bounds
+        controller.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(controller.view, aboveSubview: scroll)
+        controller.didMove(toParent: self)
+        threeD = controller
+    }
+
+    private func hide3D() {
+        guard let controller = threeD else { return }
+        controller.willMove(toParent: nil)
+        controller.view.removeFromSuperview()
+        controller.removeFromParent()
+        threeD = nil
+        // Swiping between files works again in 2D.
+        var node: UIViewController? = parent
+        while let current = node {
+            if let page = current as? PageController {
+                page.lockPaging(false)
+                break
+            }
+            node = current.parent
+        }
+    }
+
     // MARK: Zoom
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
@@ -360,6 +409,16 @@ enum DXFTextShape {
     private static let font = UIFont.systemFont(ofSize: 100)
 
     static func path(_ label: DXFLabel) -> CGPath? {
+        guard let shape = local(label) else { return nil }
+        let x = label.xAxis, y = label.yAxis, o = label.origin
+        var toDrawing = CGAffineTransform(a: CGFloat(x.x) * shape.sx, b: CGFloat(x.y) * shape.sx,
+                                          c: CGFloat(y.x) * shape.sy, d: CGFloat(y.y) * shape.sy,
+                                          tx: CGFloat(o.x), ty: CGFloat(o.y))
+        return shape.path.copy(using: &toDrawing)
+    }
+
+    // The outline in font units, aligned on its anchor, and the scale along the text and up from it.
+    static func local(_ label: DXFLabel) -> (path: CGPath, sx: CGFloat, sy: CGFloat)? {
         let cap = font.capHeight
         guard cap > 0, label.height > 0 else { return nil }
         let unit = CGFloat(label.height) / cap
@@ -407,10 +466,7 @@ enum DXFTextShape {
                 if label.stretch { sy *= stretch }
             }
         }
-        let x = label.xAxis, y = label.yAxis, o = label.origin
-        var toDrawing = CGAffineTransform(a: CGFloat(x.x) * sx, b: CGFloat(x.y) * sx, c: CGFloat(y.x) * sy, d: CGFloat(y.y) * sy,
-                                          tx: CGFloat(o.x), ty: CGFloat(o.y))
-        return combined.copy(using: &toDrawing)
+        return (path: combined as CGPath, sx: sx, sy: sy)
     }
 
     private static func glyphs(_ text: String) -> (path: CGPath, width: CGFloat) {
