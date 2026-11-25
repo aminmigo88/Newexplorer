@@ -1,8 +1,8 @@
 # Newexplorer
 
-A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, and a storage review finds duplicate files and empty folders.
+A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, DXF drawings open in a drawing viewer, and a storage review finds duplicate files and empty folders.
 
-**Version 0.8.2 (build 13)** · iPhone with iOS 17 or later · SwiftUI
+**Version 0.9.0 (build 14)** · iPhone with iOS 17 or later · SwiftUI
 
 > [!IMPORTANT]
 > The app's bundle ID must be exactly the App ID in your signing profile. If it isn't, the app installs but can't use the files and folders you pick in Files. See [Signing and the bundle ID](#signing-and-the-bundle-id).
@@ -96,6 +96,31 @@ What you can do in each:
   - Videos add duration, resolution and frame rate.
   - For a folder (long-press, then **Info**), it shows the total size and how many files and folders it holds.
 
+### DXF drawings
+
+- Tap a `.dxf` file anywhere: on the iPhone, in a Files folder, on a Windows share or inside an archive. It opens in Newexplorer's drawing viewer, fitted to the screen.
+- Pinch or double-tap to zoom, and drag to move around. Lines stay thin at every zoom, while dashes, text and pictures grow with the drawing. When it isn't zoomed, swipe to the next file as usual.
+- The main drawing shows its size underneath, such as "120 × 80 mm", in the units the file names ("units" when it names none).
+- The sheet button at the top left switches between the main drawing (**Model**) and each layout. A layout's windows show the main drawing at their own scale, without the layers frozen in that window.
+- Colors are the file's. The background is white in light mode and black in dark mode, and white lines in the drawing (color 7) show black on white.
+- Pictures in a drawing are looked for by file name in the drawing's folder. When one isn't there, a frame with its name shows instead.
+- DXF files in the lists show a small picture of the drawing, up to 20 MB per file.
+
+| In the DXF | Shown |
+|---|---|
+| Lines, polylines (including curved segments and widths), circles, arcs, ellipses, splines, points, leaders | ✅ |
+| Blocks, including arrays, attributes, dimensions and tables | ✅ |
+| Text and multi-line text: plain text in the system font, with symbols such as Ø, ° and ± | ✅ |
+| Hatches | ✅ solid and gradient ones filled, patterned ones as outlines |
+| Layer and object colors, line types (dashes and dots) and line weights | ✅ hidden and frozen layers left out |
+| Layouts with rectangular windows | ✅ |
+| Meshes, polyface meshes and 3D faces | ✅ as outlines seen from the top |
+| Pictures | ⚠️ only when the picture file is in the same folder |
+| Binary DXF files | ✅ |
+| Line types with text or symbols inside them (like "GAS" lines) | ⚠️ drawn as solid lines |
+| 3D drawings | ⚠️ seen from the top only |
+| 3D solids, multileaders, DWG files | ❌ |
+
 ### Copy, Cut, Paste and Send
 
 - Tap ✓ at the top of a pane to show the selection circles, tick items, then tap **Copy** or **Cut**. In the other pane, tap **Paste here**. Tap ✓ again to hide the circles and clear the ticks. The ⋯ menu also has **Select visible items** and **Clear selection**.
@@ -134,7 +159,7 @@ What you can do in each:
 ### Lists, sorting and tools
 
 - Each row shows a thumbnail or a type icon, the name, and below it the date and time and the size. Photos show the date and time taken.
-- Photos, videos and PDFs on this iPhone get a Quick Look thumbnail, and Photos items show their own picture. Other files show an icon for their type.
+- Photos, videos and PDFs on this iPhone get a Quick Look thumbnail, DXF drawings a small picture of the drawing, and Photos items show their own picture. Other files show an icon for their type.
 - The ⋯ pane menu has:
   - **Refresh** and **Show hidden files**
   - **Sort by** Name, Date, Size or Kind. Pick the current order again to reverse it.
@@ -199,9 +224,9 @@ Keep the same bundle ID for every update. iOS treats a different bundle ID as a 
 
 The workflow in `.github/workflows/simulator.yml` runs on every push and pull request:
 
-1. It builds the app for an iPhone simulator and runs 39 unit tests and 3 UI tests.
+1. It builds the app for an iPhone simulator and runs 47 unit tests and 3 UI tests.
 2. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
-3. It uploads the artifact **Newexplorer-v0.8.2-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
+3. It uploads the artifact **Newexplorer-v0.9.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
 
 In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in a new fork until you turn them on in its **Actions** tab.
 
@@ -232,13 +257,14 @@ Notes:
 
 ## Tests
 
-- **Unit tests (39)** cover:
+- **Unit tests (47)** cover:
   - copying, streaming and cancelling, name conflicts, moves and unique names
   - folder Info, ZIPs, archive browsing and extraction
   - the On My iPhone and iCloud Drive lists and their deletes, and picked files
   - sorting, the Send rule, Photos folders and export names, and Info formatting
   - saved shares, NetBIOS names and the Wi-Fi scan
   - share paths, and two connections to the same share
+  - DXF drawings: text and binary files, blocks, layers, line types, curves, hatches, text codes, pictures, layouts and the size
   - subfolder search, reopening the exact folder, receiving files, file icons and the storage scan
 - **UI tests (3)** cover:
   - empty panes, the Windows connection form and the Photos permission request
@@ -254,8 +280,17 @@ Notes:
 - iOS gives each app folder in On My iPhone and iCloud Drive as its own grant, so add each one once.
 - Find devices doesn't find a PC whose firewall blocks file sharing. Type its name or IP address instead.
 - Drag and drop between panes isn't included. With it, taps, long presses and the Files picker failed in every simulator test run.
+- DXF drawings are shown from the top; turning them around in 3D isn't there yet. 3D solids, multileaders and DWG files can't be shown.
 
 ## Version history
+
+### 0.9.0 (build 14)
+
+- **DXF viewer**: DXF drawings open in Newexplorer's own viewer, from every location. It handles text and binary files of every AutoCAD version, with lines, polylines, circles, arcs, ellipses, splines, blocks, dimensions, text, hatches, meshes and pictures.
+- Layer and object colors, dashed and dotted line types, and line weights. Hidden and frozen layers are left out.
+- A sheet button switches between the main drawing and its layouts, with their windows at scale.
+- The drawing's size under it, in the file's units.
+- DXF thumbnails in the file lists.
 
 ### 0.8.2 (build 13)
 

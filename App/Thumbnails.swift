@@ -21,8 +21,9 @@ enum FileIcon {
         if type.conforms(to: .text) || type.conforms(to: .compositeContent) { return "doc.text" }
         return "doc"
     }
-    // Photos, videos and PDFs get a thumbnail; other files keep their type icon.
+    // Photos, videos, PDFs and DXF drawings get a thumbnail; other files keep their type icon.
     static func hasThumbnail(_ name: String) -> Bool {
+        if DXFDrawing.handles(name) { return true }
         guard let type = UTType(filenameExtension: (name as NSString).pathExtension) else { return false }
         return type.conforms(to: .image) || type.conforms(to: .pdf)
             || (type.conforms(to: .audiovisualContent) && !type.conforms(to: .audio))
@@ -45,11 +46,14 @@ struct FileThumbnail: View {
     let row: Entry
     let url: URL?
     @Environment(\.displayScale) private var scale
+    @Environment(\.colorScheme) private var scheme
     @State private var picture: UIImage?
 
     private var key: String? {
         guard let url, !row.isFolder, !row.inCloud, FileIcon.hasThumbnail(row.name) else { return nil }
-        return url.path + "|" + String(row.date?.timeIntervalSince1970 ?? 0) + "|" + String(row.bytes ?? -1)
+        let version = url.path + "|" + String(row.date?.timeIntervalSince1970 ?? 0) + "|" + String(row.bytes ?? -1)
+        // Drawings are drawn in the colors of light or dark mode.
+        return DXFDrawing.handles(row.name) ? version + (scheme == .dark ? "|dark" : "|light") : version
     }
     var body: some View {
         Group {
@@ -66,6 +70,18 @@ struct FileThumbnail: View {
     private func load() async {
         guard let key, let url else { picture = nil; return }
         if let cached = ThumbnailCache.shared.image(key) { picture = cached; return }
+        if DXFDrawing.handles(row.name) {
+            // Very large drawings keep their icon rather than being read for a thumbnail.
+            guard (row.bytes ?? 0) <= 20_000_000 else { return }
+            let side = 36 * scale
+            let dark = scheme == .dark
+            guard let made = await Task.detached(priority: .utility, operation: {
+                DXFThumbnail.image(url, side: side, dark: dark)
+            }).value else { return }
+            ThumbnailCache.shared.store(made, key)
+            if !Task.isCancelled { picture = made }
+            return
+        }
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 36, height: 36), scale: scale,
                                                    representationTypes: .thumbnail)
         guard let made = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) else { return }
