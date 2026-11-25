@@ -7,6 +7,15 @@ struct Shelf {
     var move = false
     // The folders of items picked from a search inside subfolders.
     var homes: [String: Location] = [:]
+
+    // The items a failed, cancelled or stopped paste didn't finish; nil when none are left.
+    func remaining(after finished: Int) -> Shelf? {
+        guard finished > 0 else { return self }
+        let rest = Array(items.dropFirst(finished))
+        guard !rest.isEmpty else { return nil }
+        let ids = Set(rest.map(\.id))
+        return Shelf(from: from, items: rest, move: move, homes: homes.filter { ids.contains($0.key) })
+    }
 }
 
 enum ConflictChoice { case replace, keepBoth, skip, stop }
@@ -181,7 +190,19 @@ enum Transfer {
 
     private static func toShare(_ entry: Entry, from origin: Location, server: Share, path: String, move: Bool, hooks: TransferHooks) async throws -> Bool {
         let wanted = try windowsName(try await finalName(entry, from: origin))
-        if move, case let .share(source, sourcePath) = origin, source === server, sourcePath == path { return false }
+        // The item's path when it is on this same computer and shared folder, even through the other pane's connection.
+        var item: String?
+        if case let .share(source, sourcePath) = origin, await Share.samePlace(source, server) {
+            let here = server.child(sourcePath, try safeName(entry.name))
+            if move {
+                // Moving an item into the folder it is already in changes nothing.
+                if Share.samePath(sourcePath, path) { return false }
+                if Share.samePath(path, here) || Share.isInside(path, here) {
+                    throw ExplorerError("A folder can’t be moved into itself.")
+                }
+            }
+            item = here
+        }
         let existing = try await server.entries(path).map(\.name)
         func taken(_ name: String) -> Bool { existing.contains { $0.caseInsensitiveCompare(name) == .orderedSame } }
         var name = wanted
@@ -194,6 +215,20 @@ enum Transfer {
             case .stop: throw TransferStopped()
             }
         }
+        let final = server.child(path, name)
+        if replacing, let item {
+            // Replacing an item with itself changes nothing; replacing a folder that holds the item would lose it.
+            if Share.samePath(item, final) { return false }
+            if Share.isInside(item, final) { throw ExplorerError("“\(name)” can’t be replaced by an item that is inside it.") }
+        }
+        // On the same share a move is a rename on the computer: no download and upload.
+        if move, let item {
+            try await place(on: server, in: path, as: final, replacing: replacing) {
+                try await server.client.moveItem(atPath: item, toPath: final)
+            }
+            hooks.meter.add(entry.bytes ?? 0)
+            return true
+        }
         // Files on disk upload directly; other items get a temporary local copy first.
         let temporary = try Files.workspace()
         defer { try? Files.fm.removeItem(at: temporary) }
@@ -204,14 +239,14 @@ enum Transfer {
         } else {
             local = try await produce(entry, from: origin, into: temporary, as: name, meter: hooks.meter)
         }
-        let final = server.child(path, name)
         let staging = server.child(path, ".NX-" + UUID().uuidString)
         do {
             try await withExtendedLifetimeAsync(origin) {
                 try await upload(local, server: server, path: staging, meter: hooks.meter)
             }
-            if replacing { try await server.client.removeItem(atPath: final) }
-            try await server.client.moveItem(atPath: staging, toPath: final)
+            try await place(on: server, in: path, as: final, replacing: replacing) {
+                try await server.client.moveItem(atPath: staging, toPath: final)
+            }
         } catch {
             try? await server.client.removeItem(atPath: staging)
             if hooks.meter.isCancelled { throw CancellationError() }
@@ -219,6 +254,21 @@ enum Transfer {
         }
         if move { try await removeSource(entry, origin) }
         return true
+    }
+
+    // Gives an item its final name on a share. A replaced item is first renamed to a hidden backup and removed
+    // only once the new item has its name, so a dropped connection never loses it; if the rename fails,
+    // the backup gets its name back.
+    private static func place(on server: Share, in folder: String, as final: String, replacing: Bool,
+                              rename: () async throws -> Void) async throws {
+        guard replacing else { try await rename(); return }
+        let backup = server.child(folder, ".NX-old-" + UUID().uuidString)
+        try await server.client.moveItem(atPath: final, toPath: backup)
+        do { try await rename() } catch {
+            try? await server.client.moveItem(atPath: backup, toPath: final)
+            throw error
+        }
+        try? await server.client.removeItem(atPath: backup)
     }
 
     private static func toPhotos(_ entry: Entry, from origin: Location, folder: PhotoFolder?, move: Bool, hooks: TransferHooks) async throws {

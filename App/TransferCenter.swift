@@ -10,6 +10,8 @@ final class TransferCenter: ObservableObject {
         let more: Bool
     }
     struct Report {
+        // Items handled (done or skipped) before the transfer ended; the rest weren't finished.
+        var finished = 0
         var done = 0
         var skipped = 0
         var cancelled = false
@@ -75,6 +77,7 @@ final class TransferCenter: ObservableObject {
                 do {
                     if try await Transfer.run(item, from: homes[item.id] ?? origin, to: destination, move: move, hooks: hooks) { report.done += 1 }
                     else { report.skipped += 1 }
+                    report.finished = index + 1
                 } catch is TransferStopped {
                     report.stopped = true
                     break

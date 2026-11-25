@@ -557,7 +557,11 @@ struct ExplorerView: View {
         let destination = pane.location
         transferStatus = nil
         transfers.start(selection.items, from: selection.from, homes: selection.homes, to: destination, move: selection.move) { report in
-            if report.failure == nil && !report.cancelled && !report.stopped && shelf?.id == selection.id { shelf = nil }
+            if shelf?.id == selection.id {
+                if report.failure == nil && !report.cancelled && !report.stopped { shelf = nil }
+                // Only the unfinished items stay on the clipboard, so Paste carries on from there.
+                else { shelf = selection.remaining(after: report.finished) }
+            }
             transferStatus = summary(report, move: selection.move, to: destination)
             if let failure = report.failure { notice = failure }
             Task { await reloadPanes(showing: selection.move ? [destination, selection.from] + selection.homes.values : [destination]) }

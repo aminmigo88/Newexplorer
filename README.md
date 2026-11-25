@@ -2,7 +2,7 @@
 
 A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, and a storage review finds duplicate files and empty folders.
 
-**Version 0.8.1 (build 12)** · iPhone with iOS 17 or later · SwiftUI
+**Version 0.8.2 (build 13)** · iPhone with iOS 17 or later · SwiftUI
 
 > [!IMPORTANT]
 > The app's bundle ID must be exactly the App ID in your signing profile. If it isn't, the app installs but can't use the files and folders you pick in Files. See [Signing and the bundle ID](#signing-and-the-bundle-id).
@@ -99,9 +99,11 @@ What you can do in each:
 ### Copy, Cut, Paste and Send
 
 - Tap ✓ at the top of a pane to show the selection circles, tick items, then tap **Copy** or **Cut**. In the other pane, tap **Paste here**. Tap ✓ again to hide the circles and clear the ticks. The ⋯ menu also has **Select visible items** and **Clear selection**.
-- **Cut** moves the items. Inside one storage area (such as On My iPhone), it only renames. Elsewhere it copies and then deletes the original. Photos, archives and selected files can only be copied.
+- **Cut** moves the items. Inside one storage area, it only renames: for example inside On My iPhone, or inside one shared folder on a PC, even when the two panes opened that share separately. Elsewhere it copies and then deletes the original. Photos, archives and selected files can only be copied.
+- A folder can't be moved into itself or one of its own folders, and can't be replaced by an item that's inside it.
 - Copies go straight into the destination under a hidden `.NX-` name and get their real name when complete. On the same drive, files are cloned instantly; elsewhere they're copied in 4 MB chunks.
-- When a name is taken, choose **Replace**, **Keep both** (adds a number) or **Skip**, the same for all remaining items, or **Stop**.
+- When a name is taken, choose **Replace**, **Keep both** (adds a number) or **Skip**, the same for all remaining items, or **Stop**. Replace keeps the old item as a hidden backup until the new one has its name, so a dropped connection doesn't lose it.
+- If a paste fails, or you cancel or stop it, the clipboard keeps only the items that weren't finished, and **Paste here** carries on from there.
 - The bar under the panes shows MB and percent and has **Cancel**. You can keep browsing while it runs. Only panes that show a changed folder reload, and they keep their scroll position.
 - Long-press an item for **Send to** *(the other pane's address)*, **Share**, **Info**, **Rename**, **Delete…**, **Extract here** and **Create ZIP**. Send isn't offered when the other pane shows Photos, iCloud Drive, Selected files, an archive or the item's own folder.
 
@@ -197,9 +199,9 @@ Keep the same bundle ID for every update. iOS treats a different bundle ID as a 
 
 The workflow in `.github/workflows/simulator.yml` runs on every push and pull request:
 
-1. It builds the app for an iPhone simulator and runs 37 unit tests and 3 UI tests.
+1. It builds the app for an iPhone simulator and runs 39 unit tests and 3 UI tests.
 2. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
-3. It uploads the artifact **Newexplorer-v0.8.1-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
+3. It uploads the artifact **Newexplorer-v0.8.2-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
 
 In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in a new fork until you turn them on in its **Actions** tab.
 
@@ -230,12 +232,13 @@ Notes:
 
 ## Tests
 
-- **Unit tests (37)** cover:
+- **Unit tests (39)** cover:
   - copying, streaming and cancelling, name conflicts, moves and unique names
   - folder Info, ZIPs, archive browsing and extraction
   - the On My iPhone and iCloud Drive lists and their deletes, and picked files
   - sorting, the Send rule, Photos folders and export names, and Info formatting
   - saved shares, NetBIOS names and the Wi-Fi scan
+  - share paths, and two connections to the same share
   - subfolder search, reopening the exact folder, receiving files, file icons and the storage scan
 - **UI tests (3)** cover:
   - empty panes, the Windows connection form and the Photos permission request
@@ -253,6 +256,13 @@ Notes:
 - Drag and drop between panes isn't included. With it, taps, long presses and the Files picker failed in every simulator test run.
 
 ## Version history
+
+### 0.8.2 (build 13)
+
+- Fixed: with the same Windows share open in both panes, cutting a file, pasting it into its own folder and choosing Replace deleted it. Moving a folder into one of its own subfolders on a share deleted the folder. Two connections to the same PC and share now count as one place.
+- A move within one Windows share is a rename on the PC: instant, with no download and upload.
+- Replace on a Windows share keeps the old item as a hidden backup until the new one has its name.
+- After a failed, cancelled or stopped paste, the clipboard keeps only the unfinished items.
 
 ### 0.8.1 (build 12)
 

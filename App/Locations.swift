@@ -77,6 +77,26 @@ final class Share {
         self.displayName = host
         self.name = try safeName(share)
     }
+    // Share paths compare the way Windows compares them: without regard to case or extra slashes.
+    static func pathKey(_ path: String) -> String {
+        "/" + path.split(separator: "/").map { $0.lowercased() }.joined(separator: "/")
+    }
+    static func samePath(_ a: String, _ b: String) -> Bool { pathKey(a) == pathKey(b) }
+    // True when path is somewhere inside folder.
+    static func isInside(_ path: String, _ folder: String) -> Bool {
+        let inner = pathKey(path), outer = pathKey(folder)
+        return inner != outer && (outer == "/" || inner.hasPrefix(outer + "/"))
+    }
+    // Two connections reach the same files when they go to the same computer and shared folder,
+    // as when both panes opened the same share. A name and an address are compared by address.
+    static func samePlace(_ a: Share, _ b: Share) async -> Bool {
+        if a === b { return true }
+        guard a.name.caseInsensitiveCompare(b.name) == .orderedSame else { return false }
+        if a.host.caseInsensitiveCompare(b.host) == .orderedSame { return true }
+        let first = await LocalNetwork.addresses(a.host)
+        guard !first.isEmpty else { return false }
+        return !first.isDisjoint(with: await LocalNetwork.addresses(b.host))
+    }
     // A computer that doesn't answer on the file-sharing port fails here within 5 seconds,
     // instead of after the SMB library's 60-second wait.
     static func checkAnswering(_ host: String) async throws {
