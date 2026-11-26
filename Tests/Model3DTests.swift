@@ -53,7 +53,7 @@ final class Model3DTests: XCTestCase {
         try binarySTL().write(to: url)
         XCTAssertTrue(Model3DFile.handles("Part.STL"))
         XCTAssertTrue(Model3DFile.handles("box.3mf"))
-        XCTAssertFalse(Model3DFile.handles("bracket.step"))
+        XCTAssertFalse(Model3DFile.handles("bracket.dwg"))
         guard case let .mesh(model) = try Model3DFile.load(url) else { return XCTFail("An STL file opens as a mesh.") }
         XCTAssertEqual(model.triangleCount, 2)
         XCTAssertTrue(model.zUp)

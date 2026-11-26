@@ -1,7 +1,7 @@
 import Foundation
 import ZIPFoundation
 
-// 3D models for the 3D view: STL and 3MF files read here, and a DXF drawing's main part turned into 3D.
+// 3D models for the 3D view: STL, 3MF, STEP and IGES files read here, and a DXF drawing's main part turned into 3D.
 // OBJ files go through Apple's Model I/O (Model3DView.swift).
 
 struct Model3D {
@@ -204,6 +204,36 @@ enum STLReader {
     }
 
     private static var tooMany: ExplorerError { ExplorerError("This model has too many triangles to show here (over 6 million).") }
+}
+
+// STEP and IGES files (CAD), read and turned into triangles by Open CASCADE Technology (CADMesh.cpp).
+// Edges that aren't part of a surface, such as IGES wireframes, come back as lines.
+enum CADReader {
+    static func read(_ url: URL) throws -> Model3D {
+        let iges = ["iges", "igs"].contains(url.pathExtension.lowercased())
+        guard let result = CADMeshRead(url.path, iges ? 1 : 0, Model3D.maxTriangles) else {
+            throw ExplorerError("There isn’t enough memory to show this model.")
+        }
+        defer { CADMeshFree(result) }
+        let mesh = result.pointee
+        switch mesh.status {
+        case 0: break
+        case 2: throw ExplorerError("This file has no shapes to show.")
+        case 3: throw ExplorerError("This model has too many triangles to show here (over 6 million).")
+        case 4: throw ExplorerError("There isn’t enough memory to show this model.")
+        default: throw ExplorerError(iges ? "This IGES file can’t be read." : "This STEP file can’t be read.")
+        }
+        var model = Model3D()
+        if let triangles = mesh.triangles, mesh.triangleFloats > 0 {
+            let positions = Array(UnsafeBufferPointer(start: triangles, count: mesh.triangleFloats))
+            model.surfaces = [Model3D.Surface(positions: positions, ink: nil)]
+        }
+        if let lines = mesh.lines, mesh.lineFloats > 0 {
+            let positions = Array(UnsafeBufferPointer(start: lines, count: mesh.lineFloats))
+            model.lines = [Model3D.Lines(positions: positions, ink: .foreground)]
+        }
+        return model
+    }
 }
 
 // 3MF files (3D printing): a ZIP with XML model files. Objects can be built from components in other model files,
