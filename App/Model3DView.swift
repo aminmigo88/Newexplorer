@@ -3,7 +3,7 @@ import SceneKit
 import SceneKit.ModelIO
 import ModelIO
 
-// What the 3D view shows: a model read by Newexplorer, or a scene from Apple's Model I/O (OBJ files).
+// What the 3D view shows: a model read by Newexplorer (STL, 3MF, STEP, IGES, DXF), or a scene from Apple's Model I/O (OBJ).
 enum Model3DContent {
     case mesh(Model3D)
     case scene(SCNScene)
@@ -11,7 +11,7 @@ enum Model3DContent {
 
 enum Model3DFile {
     static func handles(_ name: String) -> Bool {
-        ["stl", "obj", "3mf"].contains((name as NSString).pathExtension.lowercased())
+        ["stl", "obj", "3mf", "step", "stp", "iges", "igs"].contains((name as NSString).pathExtension.lowercased())
     }
 
     static func load(_ url: URL) throws -> Model3DContent {
@@ -25,11 +25,15 @@ enum Model3DFile {
             model.surfaces = [Model3D.Surface(positions: positions, ink: nil)]
         case "3mf":
             model.surfaces = try ThreeMFReader.read(url)
+        case "step", "stp", "iges", "igs":
+            // Reading a CAD file takes several times its size in memory.
+            if size > 200_000_000 { throw ExplorerError("This CAD file is too big to show (over 200 MB).") }
+            model = try CADReader.read(url)
         default:
             let scene = try objScene(url)
             return .scene(scene)
         }
-        guard model.triangleCount > 0 else { throw ExplorerError("This file has no shapes to show.") }
+        guard !model.isEmpty else { throw ExplorerError("This file has no shapes to show.") }
         return .mesh(model)
     }
 

@@ -1,8 +1,8 @@
 # Newexplorer
 
-A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, DXF drawings open in a drawing viewer, STL, OBJ and 3MF models open in a 3D view, and a storage review finds duplicate files and empty folders.
+A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, DXF drawings open in a drawing viewer, STL, OBJ, 3MF, STEP and IGES models open in a 3D view, and a storage review finds duplicate files and empty folders.
 
-**Version 0.10.0 (build 15)** · iPhone with iOS 17 or later · SwiftUI
+**Version 0.11.0 (build 16)** · iPhone with iOS 17 or later · SwiftUI
 
 > [!IMPORTANT]
 > The app's bundle ID must be exactly the App ID in your signing profile. If it isn't, the app installs but can't use the files and folders you pick in Files. See [Signing and the bundle ID](#signing-and-the-bundle-id).
@@ -119,15 +119,16 @@ What you can do in each:
 | Pictures | ⚠️ only when the picture file is in the same folder |
 | Binary DXF files | ✅ |
 | Line types with text or symbols inside them (like "GAS" lines) | ⚠️ drawn as solid lines |
-| 3D drawings | ✅ turned around with the 2D \| 3D switch; in 3D, lines are thin and solid |
+| 3D drawings | ✅ turned around with the 2D \| 3D switch; in 3D, lines are thin and solid, and only the first 2,000 fills and 1,000 texts show |
 | 3D solids, multileaders, DWG files | ❌ |
 
 ### 3D models
 
-- Tap a `.stl`, `.obj` or `.3mf` file anywhere: on the iPhone, in a Files folder, on a Windows share or inside an archive. It opens in Newexplorer's 3D view, fitted to the screen and seen from the front, a little from above.
+- Tap a `.stl`, `.obj`, `.3mf`, `.step`/`.stp` or `.iges`/`.igs` file anywhere: on the iPhone, in a Files folder, on a Windows share or inside an archive. It opens in Newexplorer's 3D view, fitted to the screen and seen from the front, a little from above.
 - One finger turns the model, two fingers move it, pinch zooms, and double-tap fits it back.
 - One finger turns the model, so swiping to the next file is off in the 3D view. The ‹ and › buttons at the sides go to the previous and next file.
-- Files up to 500 MB and 6 million triangles open.
+- Files up to 500 MB (STEP and IGES up to 200 MB) and 6 million triangles open. A STEP or IGES model that needs more triangles is shown coarser.
+- STEP and IGES files are read with [Open CASCADE Technology](https://github.com/Open-Cascade-SAS/OCCT) 7.9.3. A big one takes a while to open.
 
 | File | Shown |
 |---|---|
@@ -135,7 +136,9 @@ What you can do in each:
 | 3MF, including objects made of parts in other files (as slicers save them) | ✅ |
 | 3MF colors | ⚠️ the colors stored in the model; filament colors a slicer keeps in its own settings aren't used, so those parts show in light gray-blue |
 | OBJ | ✅ with its materials and textures when their files are in the same folder |
-| STEP/STP and IGES/IGS | ❌ not yet |
+| STEP/STP and IGES/IGS solids and surfaces | ✅ in light gray-blue; curved faces are made of small flat triangles |
+| IGES wireframes and loose curves | ✅ as lines |
+| STEP and IGES colors | ⚠️ not used, so everything shows in light gray-blue |
 
 ### Copy, Cut, Paste and Send
 
@@ -240,9 +243,10 @@ Keep the same bundle ID for every update. iOS treats a different bundle ID as a 
 
 The workflow in `.github/workflows/simulator.yml` runs on every push and pull request:
 
-1. It builds the app for an iPhone simulator and runs 51 unit tests and 3 UI tests.
-2. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
-3. It uploads the artifact **Newexplorer-v0.10.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
+1. It builds Open CASCADE 7.9.3 for iPhone and simulator with `Scripts/build_occt.sh`, or takes it from the Actions cache. The first build takes about an hour; the cache is used until that script changes.
+2. It builds the app for an iPhone simulator and runs 53 unit tests and 3 UI tests.
+3. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
+4. It uploads the artifact **Newexplorer-v0.11.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
 
 In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in a new fork until you turn them on in its **Actions** tab.
 
@@ -251,14 +255,15 @@ In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in 
 You need a Mac with Xcode 16 or later and an iPhone with iOS 17 or later. The workflow runs on GitHub's macOS 15 runner, which currently has Xcode 16.4.
 
 1. Clone the repository.
-2. In Terminal, in the repository folder, run this with your App ID:
+2. Install CMake (`brew install cmake`). In Terminal, in the repository folder, run `bash Scripts/build_occt.sh` once. It downloads Open CASCADE 7.9.3 and builds it for iPhone and simulator into `Vendor/occt`, which takes about an hour.
+3. In the same folder, run this with your App ID:
 
    ```sh
    BUNDLE_ID=com.yourname.newexplorer python3 Scripts/generate_project.py
    ```
 
    It rewrites `Newexplorer.xcodeproj` with that bundle ID. Without `BUNDLE_ID`, it uses the placeholder.
-3. Open `Newexplorer.xcodeproj`, choose the **Newexplorer** scheme and your iPhone, pick your team under **Signing & Capabilities**, and run.
+4. Open `Newexplorer.xcodeproj`, choose the **Newexplorer** scheme and your iPhone, pick your team under **Signing & Capabilities**, and run.
 
 Notes:
 
@@ -268,12 +273,13 @@ Notes:
   - AMSMB2 4.0.3 for Windows shares (LGPL-2.1)
   - ZIPFoundation 0.9.20 for making ZIPs (MIT)
   - LibArchive 0.1.6 for reading archives (BSD)
+- Open CASCADE Technology 7.9.3 reads STEP and IGES files (LGPL-2.1 with the Open CASCADE exception). `Scripts/build_occt.sh` builds it and the app links it in.
 
   Their licenses are in `App/ThirdPartyNotices.txt`, which ships inside the app.
 
 ## Tests
 
-- **Unit tests (51)** cover:
+- **Unit tests (53)** cover:
   - copying, streaming and cancelling, name conflicts, moves and unique names
   - folder Info, ZIPs, archive browsing and extraction
   - the On My iPhone and iCloud Drive lists and their deletes, and picked files
@@ -282,6 +288,7 @@ Notes:
   - share paths, and two connections to the same share
   - DXF drawings: text and binary files, blocks, layers, line types, curves, hatches, text codes, pictures, layouts and the size
   - 3D models: binary and text STL, 3MF parts, moves and colors, OBJ files, and DXF drawings in 3D
+  - STEP and IGES: a box from each, an IGES wireframe, and files that aren't CAD
   - subfolder search, reopening the exact folder, receiving files, file icons and the storage scan
 - **UI tests (3)** cover:
   - empty panes, the Windows connection form and the Photos permission request
@@ -297,9 +304,15 @@ Notes:
 - iOS gives each app folder in On My iPhone and iCloud Drive as its own grant, so add each one once.
 - Find devices doesn't find a PC whose firewall blocks file sharing. Type its name or IP address instead.
 - Drag and drop between panes isn't included. With it, taps, long presses and the Files picker failed in every simulator test run.
-- In 3D, lines are thin and solid: dashes and line widths show only in 2D. DXF 3D solids, multileaders and DWG files can't be shown, and STEP and IGES files aren't supported yet.
+- In 3D, lines are thin and solid: dashes and line widths show only in 2D, and a DXF drawing shows only its first 2,000 fills and 1,000 texts. DXF 3D solids, multileaders and DWG files can't be shown, and STEP and IGES colors aren't used.
 
 ## Version history
+
+### 0.11.0 (build 16)
+
+- **STEP and IGES**: `.step`, `.stp`, `.iges` and `.igs` files open in the 3D view, read with Open CASCADE Technology 7.9.3.
+- IGES wireframes and loose curves show as lines.
+- The README notes that a DXF drawing in 3D shows only its first 2,000 fills and 1,000 texts.
 
 ### 0.10.0 (build 15)
 

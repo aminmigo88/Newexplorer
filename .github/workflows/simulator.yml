@@ -5,9 +5,27 @@ permissions:
 jobs:
   tests:
     runs-on: macos-15
-    timeout-minutes: 25
+    # The first build of Open CASCADE takes about an hour; after that it comes from the cache.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v5
+      # Open CASCADE (the STEP and IGES reader's library) is built once per version of Scripts/build_occt.sh and kept
+      # in the Actions cache. It's saved right after building, so a later failing step doesn't lose it.
+      - name: Restore Open CASCADE
+        id: occt
+        uses: actions/cache/restore@v4
+        with:
+          path: Vendor/occt
+          key: occt-${{ hashFiles('Scripts/build_occt.sh') }}
+      - name: Build Open CASCADE for iPhone and simulator
+        if: steps.occt.outputs.cache-hit != 'true'
+        run: bash Scripts/build_occt.sh
+      - name: Save Open CASCADE
+        if: steps.occt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: Vendor/occt
+          key: ${{ steps.occt.outputs.cache-primary-key }}
       - name: Pick an installed iPhone simulator
         run: |
           device=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; runtimes=json.load(sys.stdin)["devices"]; print(next(d["udid"] for runtime,devices in reversed(list(runtimes.items())) if "iOS-" in runtime for d in devices if d["name"].startswith("iPhone") and d["isAvailable"]))')
@@ -77,7 +95,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: github.ref == 'refs/heads/main'
         with:
-          name: Newexplorer-v0.10.0-unsigned
+          name: Newexplorer-v0.11.0-unsigned
           path: |
             output/*.ipa
             output/SHA256.txt

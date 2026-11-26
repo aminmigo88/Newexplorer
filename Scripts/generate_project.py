@@ -29,6 +29,10 @@ for n,url,v in [('AMSMB2','amosavian/AMSMB2','4.0.3'),('ZIPFoundation','weichsel
 # The bundle ID must be the App ID in your signing profile (README, Signing).
 # BUNDLE_ID=your.app.id python3 Scripts/generate_project.py
 bundle_id=os.environ.get('BUNDLE_ID') or 'com.example.newexplorer'
+# Open CASCADE Technology toolkits for the STEP and IGES reader (App/CADMesh.cpp). Scripts/build_occt.sh builds them
+# into Vendor/occt; the linker takes only the parts the reader uses.
+occt=['TKDESTEP','TKDEIGES','TKXCAF','TKVCAF','TKV3d','TKHLR','TKService','TKMesh','TKCAF','TKLCAF','TKCDF','TKBool','TKBO',
+      'TKPrim','TKXSBase','TKShHealing','TKTopAlgo','TKGeomAlgo','TKDE','TKBRep','TKGeomBase','TKG3d','TKG2d','TKMath','TKernel']
 products=[]; groups=[]
 targets = [('Newexplorer','App','.app','application'),('NewexplorerTests','Tests','.xctest','bundle.unit-test'),
            ('NewexplorerUITests','UITests','.xctest','bundle.ui-testing')]
@@ -40,6 +44,13 @@ for target,folder,ext,typ in targets:
     for f in sorted((p/folder).glob('*.swift')):
         files.append(obj(f.name,'PBXFileReference',lastKnownFileType='sourcecode.swift',path=f.name,sourceTree='<group>'))
         builds.append(obj(f.name+'build','PBXBuildFile',fileRef=files[-1]))
+    if app:
+        # C++ files see the Open CASCADE headers; Swift and the rest of the app don't.
+        for f in sorted((p/folder).glob('*.cpp')):
+            files.append(obj(f.name,'PBXFileReference',lastKnownFileType='sourcecode.cpp.cpp',path=f.name,sourceTree='<group>'))
+            builds.append(obj(f.name+'build','PBXBuildFile',fileRef=files[-1],settings={'COMPILER_FLAGS':'-I$(SRCROOT)/Vendor/occt/include'}))
+        for f in sorted((p/folder).glob('*.h')):
+            files.append(obj(f.name,'PBXFileReference',lastKnownFileType='sourcecode.c.h',path=f.name,sourceTree='<group>'))
     resources = []
     if app:
         asset = obj("assets", "PBXFileReference", lastKnownFileType="folder.assetcatalog", path="Assets.xcassets", sourceTree="<group>")
@@ -51,13 +62,17 @@ for target,folder,ext,typ in targets:
     sources=obj(target+'src','PBXSourcesBuildPhase',buildActionMask=2147483647,files=builds,runOnlyForDeploymentPostprocessing=0)
     fw=obj(target+'fw','PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[ID(n+'link') for n in ['AMSMB2','ZIPFoundation','LibArchive']] if app else [],runOnlyForDeploymentPostprocessing=0)
     suffix = {'App': '', 'Tests': '.tests', 'UITests': '.uitests'}[folder]
-    cfg={'PRODUCT_BUNDLE_IDENTIFIER':bundle_id+suffix,'PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks','@loader_path/Frameworks'],'MARKETING_VERSION':'0.10.0','CURRENT_PROJECT_VERSION':'15'}
+    cfg={'PRODUCT_BUNDLE_IDENTIFIER':bundle_id+suffix,'PRODUCT_NAME':'$(TARGET_NAME)','GENERATE_INFOPLIST_FILE':'YES','CODE_SIGN_STYLE':'Automatic','LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/Frameworks','@loader_path/Frameworks'],'MARKETING_VERSION':'0.11.0','CURRENT_PROJECT_VERSION':'16'}
     phases=[sources,fw,resourcePhase]
     deps=[]
     if app:
         embed=obj("SMBEmbedBuild","PBXBuildFile",productRef=ID("AMSMB2prod"),settings={"ATTRIBUTES":["CodeSignOnCopy","RemoveHeadersOnCopy"]})
         phases.append(obj("embed","PBXCopyFilesBuildPhase",buildActionMask=2147483647,dstPath="",dstSubfolderSpec=10,files=[embed],name="Embed Frameworks",runOnlyForDeploymentPostprocessing=0))
         cfg.update(ASSETCATALOG_COMPILER_APPICON_NAME="AppIcon", INFOPLIST_FILE="App/Info.plist")
+        cfg.update({'SWIFT_OBJC_BRIDGING_HEADER':'App/Newexplorer-Bridging-Header.h','CLANG_CXX_LANGUAGE_STANDARD':'c++17',
+                    'LIBRARY_SEARCH_PATHS[sdk=iphoneos*]':['$(inherited)','$(SRCROOT)/Vendor/occt/iphoneos/lib'],
+                    'LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]':['$(inherited)','$(SRCROOT)/Vendor/occt/iphonesimulator/lib'],
+                    'OTHER_LDFLAGS':['$(inherited)']+['-l'+tk for tk in occt]+['-lc++'],'DEAD_CODE_STRIPPING':'YES'})
         cfg.update(INFOPLIST_KEY_CFBundleDisplayName='Newexplorer',INFOPLIST_KEY_UILaunchScreen_Generation='YES',INFOPLIST_KEY_UIApplicationSceneManifest_Generation='YES',INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone='UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight',INFOPLIST_KEY_NSPhotoLibraryUsageDescription='Browse and copy the photos and videos you choose.',INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription='Save the pictures and videos you paste into Photos.',INFOPLIST_KEY_NSLocalNetworkUsageDescription='Find computers and drives that share files on your Wi-Fi, and connect to the share you choose.',INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace='YES')
     else:
         if folder == 'UITests':
