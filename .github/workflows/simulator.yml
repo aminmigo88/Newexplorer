@@ -1,9 +1,5 @@
 name: iPhone simulator
-on:
-  push:
-  pull_request:
-    types: [opened, synchronize, reopened]
-  workflow_dispatch:
+on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
 jobs:
@@ -47,20 +43,20 @@ jobs:
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
             --test-id 'LocationChoiceTests/testSystemFilesPickerDeliversSingleFile()' \
             | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone|Picking|Open button|Picker still|Step:' || true
-          # The Files picker and Photos UI tests are run and reported but don't block the build: the simulator's
-          # Files picker drops picks and its Photos library hangs (the 0.6.0 code fails both the same way).
-          # Every other test must pass.
+          # The Photos integration test can hang in the simulator. The Files test marks
+          # only its known system-picker delivery failure as expected.
           xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | STATUS="$status" python3 -c '
           import json, os, sys
           result = json.load(sys.stdin)
-          reported = {"LocationChoiceTests/testSystemFilesPickerDeliversSingleFile()",
-                      "LocationChoiceTests/testPhotoFoldersViewerSwipeInfoSendAndArchives()"}
+          reported = {"LocationChoiceTests/testPhotoFoldersViewerSwipeInfoSendAndArchives()"}
           failed = {f["testIdentifierString"] for f in result.get("testFailures", [])}
           for test in sorted(failed & reported):
               print("::warning::" + test + " failed in the simulator; it does not block the build.")
           assert failed <= reported, ("Failed tests", sorted(failed - reported))
           assert result["skippedTests"] == 0, result
-          assert result["passedTests"] + len(failed) >= 40, result
+          import pathlib, re
+          expected = sum(len(re.findall(r"\bfunc test\w*\(", p.read_text())) for folder in ["Tests", "UITests"] for p in pathlib.Path(folder).glob("*.swift"))
+          assert result["passedTests"] + result.get("expectedFailures", 0) + len(failed) >= expected, result
           assert os.environ["STATUS"] == "0" or failed, ("Tests stopped without a failed test", result)
           '
       - name: Save simulator results

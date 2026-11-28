@@ -3,15 +3,20 @@ import UIKit
 @testable import Newexplorer
 
 final class TransferTests: XCTestCase {
-    func testDirectFileSelectionCopiesTheChosenURLWhenNamesMatch() async throws {
+    @MainActor func testDirectFileSelectionCopiesTheChosenURLWhenNamesMatch() async throws {
         let base = try Files.workspace()
         defer { try? Files.fm.removeItem(at: base) }
         let folders = ["First", "Second", "Output"].map { base.appendingPathComponent($0) }
         for url in folders { try Files.fm.createDirectory(at: url, withIntermediateDirectories: false) }
         let files = folders.prefix(2).map { $0.appendingPathComponent("shared.txt") }
         for (i, url) in files.enumerated() { try Data([UInt8(i)]).write(to: url) }
-        let selection = Location.selectedFiles(files.map(FolderGrant.init))
-        let entries = try await Directory.list(selection)
+        let pane = Pane(label: "SelectionTest")
+        defer { UserDefaults.standard.removeObject(forKey: "savedFolder.SelectionTest.spot") }
+        await pane.finishPicking(files + [files[0]], mode: .files)?.value
+        XCTAssertNil(pane.finishPicking([], mode: .files))
+        let selection = pane.location
+        let entries = pane.rows
+        XCTAssertEqual(entries.count, 2)
         XCTAssertEqual(Set(entries.map(\.id)).count, 2)
         let second = try XCTUnwrap(entries.first { $0.id == files[1].absoluteString })
         try await Transfer.copy(second, from: selection, to: .local(folders[2]))

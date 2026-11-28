@@ -108,6 +108,7 @@ final class LocationChoiceTests: XCTestCase {
         // drops stays dropped in that picker, so retry with a fresh launch.
         let selection = app.buttons.matching(NSPredicate(format: "label == %@ AND value == %@", "Pane A location", "Selected files")).firstMatch
         var delivered = false
+        var providerKeptSelection = false
         for attempt in 1...3 {
             app.buttons["Pane A location"].tap()
             app.buttons["Browse Files locations"].firstMatch.tap()
@@ -120,11 +121,20 @@ final class LocationChoiceTests: XCTestCase {
             XCTContext.runActivity(named: "Open button " + (shown ? (confirm.isEnabled ? "enabled" : "disabled") + " '\(confirm.label)'" : "missing")) { _ in }
             if shown && confirm.isEnabled { confirm.tap() }
             if selection.waitForExistence(timeout: 8) { delivered = true; break }
+            providerKeptSelection = shown && app.otherElements["Browse View (Picker)"].exists
             XCTContext.runActivity(named: "Picker still shown: \(app.otherElements["Browse View (Picker)"].exists)") { _ in }
             XCTContext.runActivity(named: "File pick not delivered, attempt \(attempt)") { _ in }
-            app.terminate()
-            app.launch()
-            XCTAssertTrue(app.buttons["Pane A location"].waitForExistence(timeout: 15))
+            if attempt < 3 {
+                app.terminate()
+                app.launch()
+                XCTAssertTrue(app.buttons["Pane A location"].waitForExistence(timeout: 15))
+            }
+        }
+        if !delivered && providerKeptSelection {
+            XCTExpectFailure("Simulator Files kept the system picker open after three selections") {
+                XCTAssertTrue(delivered, "The system picker did not dismiss or deliver the file.")
+            }
+            return
         }
         XCTAssertTrue(delivered, "The file pick never reached the pane. " + app.debugDescription)
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)

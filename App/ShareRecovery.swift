@@ -108,7 +108,9 @@ actor ShareRecovery {
     }
 
     func recover(in folder: ShareFolder, remote: RecoveryDirectory) async throws {
-        for record in try records() where record.folder == folder && !active.contains(record.id) {
+        for record in try records() where record.folder == folder {
+            // An earlier await may have let another pane finish this record.
+            guard !active.contains(record.id), FileManager.default.fileExists(atPath: file(record.id).path) else { continue }
             active.insert(record.id)
             defer { active.remove(record.id) }
             try await reconcile(record, remote)

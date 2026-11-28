@@ -55,7 +55,7 @@ final class ViewerModel: ObservableObject {
 
     func page(_ index: Int) -> PageController {
         let entry = items[index]
-        return PageController(index: index) { [weak self] in
+        return PageController(index: index, cancelWhenHidden: CADReader.handles(entry.name)) { [weak self] in
             guard let self else { return .failure("") }
             do { return try await self.content(for: entry) }
             catch { return .failure(error.localizedDescription) }
@@ -72,13 +72,13 @@ final class ViewerModel: ObservableObject {
         }
         // STL, OBJ and 3MF models open in the 3D view.
         if Model3DFile.handles(url.lastPathComponent) {
-            let cancellation = try CADCancellation()
+            let cancellation = CADReader.handles(url.lastPathComponent) ? try CADCancellation() : nil
             let model = try await withTaskCancellationHandler {
                 try Task.checkCancellation()
                 return try await Task.detached(priority: .userInitiated) {
                     try Model3DFile.load(url, cancellation: cancellation)
                 }.value
-            } onCancel: { cancellation.cancel() }
+            } onCancel: { cancellation?.cancel() }
             return .model(model, sourceFolder(for: entry))
         }
         if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .audiovisualContent) {
@@ -363,14 +363,16 @@ final class PageController: UIViewController {
     // How many files the viewer has, and how to move to a neighbour; set by the pager.
     var count = 1
     var step: ((Int) -> Void)?
+    private let cancelWhenHidden: Bool
     private let load: () async -> PageContent
     private var task: Task<Void, Never>?
     private var player: AVPlayer?
     private var previewSource: QuickLookSource?
     private let spinner = UIActivityIndicatorView(style: .large)
 
-    init(index: Int, load: @escaping () async -> PageContent) {
+    init(index: Int, cancelWhenHidden: Bool, load: @escaping () async -> PageContent) {
         self.index = index
+        self.cancelWhenHidden = cancelWhenHidden
         self.load = load
         super.init(nibName: nil, bundle: nil)
     }
@@ -391,6 +393,7 @@ final class PageController: UIViewController {
     }
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        guard cancelWhenHidden else { return }
         task?.cancel()
         task = nil
     }

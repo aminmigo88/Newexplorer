@@ -238,6 +238,23 @@ final class Pane: ObservableObject {
             message = "Choose the saved folder again in Files. \(error.localizedDescription)"
         }
     }
+    // Acquire security-scoped grants while the picker's callback still owns the URLs.
+    @discardableResult
+    func finishPicking(_ urls: [URL], mode: FilesPickerMode) -> Task<Void, Never>? {
+        guard let url = urls.first else { return nil }
+        switch mode {
+        case .folder:
+            let grant = FolderGrant(url)
+            return Task { await useFolder(grant, saveBookmark: true) }
+        case .files:
+            var seen = Set<URL>()
+            let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
+            return Task { await open(.selectedFiles(grants)) }
+        case let .placeRoot(place), let .placeFolders(place):
+            return Task { await addToPlace(place, urls) }
+        }
+    }
+
     func useFolder(_ grant: FolderGrant, saveBookmark: Bool) async {
         // The top of On My iPhone or iCloud Drive opens as the combined list.
         if Place.root(of: grant.url) != nil {
@@ -457,18 +474,7 @@ struct ExplorerView: View {
         .sheet(item: $picker) { request in
             FilesPicker(mode: request.mode) { urls in
                 picker = nil
-                guard let url = urls.first else { return }
-                switch request.mode {
-                case .folder:
-                    let grant = FolderGrant(url)
-                    Task { await request.pane.useFolder(grant, saveBookmark: true) }
-                case .files:
-                    var seen = Set<URL>()
-                    let grants = urls.filter { seen.insert($0).inserted }.map(FolderGrant.init)
-                    Task { await request.pane.open(.selectedFiles(grants)) }
-                case let .placeRoot(place), let .placeFolders(place):
-                    Task { await request.pane.addToPlace(place, urls) }
-                }
+                request.pane.finishPicking(urls, mode: request.mode)
             }
         }
         .conflictQuestion(transfers)

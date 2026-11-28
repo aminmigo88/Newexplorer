@@ -224,9 +224,16 @@ final class CADCancellation: @unchecked Sendable {
 }
 
 enum CADReader {
+    static func handles(_ name: String) -> Bool {
+        ["step", "stp", "iges", "igs"].contains((name as NSString).pathExtension.lowercased())
+    }
+
     static func read(_ url: URL, cancellation: CADCancellation? = nil) throws -> Model3D {
         let iges = ["iges", "igs"].contains(url.pathExtension.lowercased())
-        guard let result = CADMeshRead(url.path, iges ? 1 : 0, Model3D.maxTriangles, cancellation?.token) else {
+        let read = withExtendedLifetime(cancellation) {
+            CADMeshRead(url.path, iges ? 1 : 0, Model3D.maxTriangles, cancellation?.token)
+        }
+        guard let result = read else {
             throw ExplorerError("There isn’t enough memory to show this model.")
         }
         defer { CADMeshFree(result) }

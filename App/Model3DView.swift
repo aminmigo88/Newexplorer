@@ -11,7 +11,7 @@ enum Model3DContent {
 
 enum Model3DFile {
     static func handles(_ name: String) -> Bool {
-        ["stl", "obj", "3mf", "step", "stp", "iges", "igs"].contains((name as NSString).pathExtension.lowercased())
+        CADReader.handles(name) || ["stl", "obj", "3mf"].contains((name as NSString).pathExtension.lowercased())
     }
 
     static func load(_ url: URL, cancellation: CADCancellation? = nil) throws -> Model3DContent {
