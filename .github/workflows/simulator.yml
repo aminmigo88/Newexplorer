@@ -1,5 +1,9 @@
 name: iPhone simulator
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
@@ -41,7 +45,7 @@ jobs:
             -destination "platform=iOS Simulator,id=$SIMULATOR_ID" \
             -resultBundlePath SimulatorTests.xcresult -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO || status=$?
           xcrun xcresulttool get test-results activities --path SimulatorTests.xcresult \
-            --test-id 'LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()' \
+            --test-id 'LocationChoiceTests/testSystemFilesPickerDeliversSingleFile()' \
             | grep -o '"title" : "[^"]*"' | grep -E 'Added folder|while adding|not delivered|Back to On My iPhone|Picking|Open button|Picker still|Step:' || true
           # The Files picker and Photos UI tests are run and reported but don't block the build: the simulator's
           # Files picker drops picks and its Photos library hangs (the 0.6.0 code fails both the same way).
@@ -49,7 +53,7 @@ jobs:
           xcrun xcresulttool get test-results summary --path SimulatorTests.xcresult | STATUS="$status" python3 -c '
           import json, os, sys
           result = json.load(sys.stdin)
-          reported = {"LocationChoiceTests/testFolderPickerReturnsExternalDownloadsToPaneBAndReopensAfterRelaunch()",
+          reported = {"LocationChoiceTests/testSystemFilesPickerDeliversSingleFile()",
                       "LocationChoiceTests/testPhotoFoldersViewerSwipeInfoSendAndArchives()"}
           failed = {f["testIdentifierString"] for f in result.get("testFailures", [])}
           for test in sorted(failed & reported):
@@ -59,6 +63,13 @@ jobs:
           assert result["passedTests"] + len(failed) >= 40, result
           assert os.environ["STATUS"] == "0" or failed, ("Tests stopped without a failed test", result)
           '
+      - name: Save simulator results
+        if: always() && hashFiles('SimulatorTests.xcresult/Info.plist') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimulatorTests
+          path: SimulatorTests.xcresult
+          retention-days: 7
       - name: Report simulator test failures
         if: failure()
         run: |
@@ -74,7 +85,7 @@ jobs:
             done
           fi
       - name: Build unsigned iPhone app
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev/v0.12.0'
         env:
           # The App ID of your signing profile, kept in the repository secret BUNDLE_ID (README, Signing).
           BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
@@ -88,14 +99,14 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -derivedDataPath build/device CODE_SIGNING_ALLOWED=NO
       - name: Package and validate IPA
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev/v0.12.0'
         env:
           BUNDLE_ID: ${{ secrets.BUNDLE_ID }}
         run: python3 Scripts/package_ipa.py
       - uses: actions/upload-artifact@v4
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev/v0.12.0'
         with:
-          name: Newexplorer-v0.11.0-unsigned
+          name: Newexplorer-v0.12.0-unsigned
           path: |
             output/*.ipa
             output/SHA256.txt

@@ -118,7 +118,8 @@ final class Share {
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
     func entries(_ path: String) async throws -> [Entry] {
-        try await client.contentsOfDirectory(atPath: path).compactMap { row in
+        try await ShareRecovery.shared.recover(in: ShareFolder(self, path), remote: SMBDirectory(server: self, path: path))
+        return try await client.contentsOfDirectory(atPath: path).compactMap { row in
             guard let name = row[.nameKey] as? String, (try? safeName(name)) != nil else { return nil }
             let type = row[.fileResourceTypeKey] as? URLFileResourceType
             guard type == .directory || type == .regular else { return nil }

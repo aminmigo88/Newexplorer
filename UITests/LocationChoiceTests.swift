@@ -94,6 +94,15 @@ final class LocationChoiceTests: XCTestCase {
         addedFolder.tap()
         XCTAssertTrue(app.buttons["item-A-root-file.txt"].waitForExistence(timeout: 10), app.debugDescription)
 
+    }
+
+    func testSystemFilesPickerDeliversSingleFile() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["FILES_FIXTURE"] == "1", "Requires the simulator Files fixture")
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["Pane A location"].waitForExistence(timeout: 15))
+        let confirm = app.buttons.matching(NSPredicate(format: "label IN %@", ["Open", "Done"])).firstMatch
         step("Browse Files pick")
         // Single files still open in place from Browse Files locations. A pick the simulator
         // drops stays dropped in that picker, so retry with a fresh launch.

@@ -10,14 +10,19 @@ struct Model3D {
 
     // Triangles: x, y and z of each corner, three corners per triangle.
     struct Surface {
-        var positions: [Float]
-        // nil: the default model color.
-        var ink: DXFInk?
+        let positions: MeshPositions
+        let ink: DXFInk?
+
+        init(positions: [Float], ink: DXFInk?) { self.init(storage: .array(positions), ink: ink) }
+        init(storage: MeshPositions, ink: DXFInk?) { positions = storage; self.ink = ink }
     }
     // Line segments (two ends each) or points: x, y and z of each.
     struct Lines {
-        var positions: [Float]
-        var ink: DXFInk
+        let positions: MeshPositions
+        let ink: DXFInk
+
+        init(positions: [Float], ink: DXFInk) { self.init(storage: .array(positions), ink: ink) }
+        init(storage: MeshPositions, ink: DXFInk) { positions = storage; self.ink = ink }
     }
     var surfaces: [Surface] = []
     var lines: [Lines] = []
@@ -45,15 +50,15 @@ struct Model3D {
             low = DXFVec(min(low.x, p.x), min(low.y, p.y), min(low.z, p.z))
             high = DXFVec(max(high.x, p.x), max(high.y, p.y), max(high.z, p.z))
         }
-        func includeAll(_ positions: [Float]) {
+        func includeAll(_ positions: UnsafeBufferPointer<Float>) {
             var k = 0
             while k + 2 < positions.count {
                 include(DXFVec(Double(positions[k]), Double(positions[k + 1]), Double(positions[k + 2])))
                 k += 3
             }
         }
-        for surface in surfaces { includeAll(surface.positions) }
-        for group in lines + points { includeAll(group.positions) }
+        for surface in surfaces { surface.positions.withFloats(includeAll) }
+        for group in lines + points { group.positions.withFloats(includeAll) }
         for fill in flats { for ring in fill.rings { for point in ring { include(point - offset) } } }
         for label in labels { include(label.origin - offset) }
         for picture in pictures {
@@ -208,10 +213,20 @@ enum STLReader {
 
 // STEP and IGES files (CAD), read and turned into triangles by Open CASCADE Technology (CADMesh.cpp).
 // Edges that aren't part of a surface, such as IGES wireframes, come back as lines.
+final class CADCancellation: @unchecked Sendable {
+    let token: OpaquePointer
+    init() throws {
+        guard let token = CADCancelCreate() else { throw ExplorerError("Insufficient memory for CAD loading.") }
+        self.token = token
+    }
+    func cancel() { CADCancelRequest(token) }
+    deinit { CADCancelFree(token) }
+}
+
 enum CADReader {
-    static func read(_ url: URL) throws -> Model3D {
+    static func read(_ url: URL, cancellation: CADCancellation? = nil) throws -> Model3D {
         let iges = ["iges", "igs"].contains(url.pathExtension.lowercased())
-        guard let result = CADMeshRead(url.path, iges ? 1 : 0, Model3D.maxTriangles) else {
+        guard let result = CADMeshRead(url.path, iges ? 1 : 0, Model3D.maxTriangles, cancellation?.token) else {
             throw ExplorerError("There isn’t enough memory to show this model.")
         }
         defer { CADMeshFree(result) }
@@ -220,17 +235,20 @@ enum CADReader {
         case 0: break
         case 2: throw ExplorerError("This file has no shapes to show.")
         case 3: throw ExplorerError("This model has too many triangles to show here (over 6 million).")
+        case 5: throw CancellationError()
         case 4: throw ExplorerError("There isn’t enough memory to show this model.")
         default: throw ExplorerError(iges ? "This IGES file can’t be read." : "This STEP file can’t be read.")
         }
         var model = Model3D()
         if let triangles = mesh.triangles, mesh.triangleFloats > 0 {
-            let positions = Array(UnsafeBufferPointer(start: triangles, count: mesh.triangleFloats))
-            model.surfaces = [Model3D.Surface(positions: positions, ink: nil)]
+            result.pointee.triangles = nil
+            let positions = Data(bytesNoCopy: triangles, count: mesh.triangleFloats * MemoryLayout<Float>.stride, deallocator: .free)
+            model.surfaces = [Model3D.Surface(storage: .native(positions), ink: nil)]
         }
         if let lines = mesh.lines, mesh.lineFloats > 0 {
-            let positions = Array(UnsafeBufferPointer(start: lines, count: mesh.lineFloats))
-            model.lines = [Model3D.Lines(positions: positions, ink: .foreground)]
+            result.pointee.lines = nil
+            let positions = Data(bytesNoCopy: lines, count: mesh.lineFloats * MemoryLayout<Float>.stride, deallocator: .free)
+            model.lines = [Model3D.Lines(storage: .native(positions), ink: .foreground)]
         }
         return model
     }

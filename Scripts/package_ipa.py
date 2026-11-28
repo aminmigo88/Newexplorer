@@ -9,8 +9,8 @@ import hashlib
 
 app = Path("build/device/Build/Products/Release-iphoneos/Newexplorer.app")
 info = plistlib.loads((app / "Info.plist").read_bytes())
-assert info["CFBundleShortVersionString"] == "0.11.0"
-assert info["CFBundleVersion"] == "16"
+assert info["CFBundleShortVersionString"] == "0.12.0"
+assert info["CFBundleVersion"] == "17"
 # The bundle ID set for this build: the BUNDLE_ID secret, or the placeholder when it isn't set.
 assert info["CFBundleIdentifier"] == (os.environ.get("BUNDLE_ID") or "com.example.newexplorer"), "The app doesn't have the bundle ID set for this build"
 assert info["UIFileSharingEnabled"] and info["LSSupportsOpeningDocumentsInPlace"]
@@ -49,7 +49,7 @@ copy = payload / app.name
 shutil.copytree(app, copy, dirs_exist_ok=True)
 for signature in list(copy.rglob("_CodeSignature")):
     shutil.rmtree(signature)
-ipa = output / "Newexplorer-v0.11.0-unsigned.ipa"
+ipa = output / "Newexplorer-v0.12.0-unsigned.ipa"
 subprocess.run(["ditto", "-c", "-k", "--keepParent", str(payload), str(ipa)], check=True)
 with zipfile.ZipFile(ipa) as archive:
     assert archive.testzip() is None

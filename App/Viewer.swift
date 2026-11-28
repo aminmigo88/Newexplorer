@@ -72,7 +72,13 @@ final class ViewerModel: ObservableObject {
         }
         // STL, OBJ and 3MF models open in the 3D view.
         if Model3DFile.handles(url.lastPathComponent) {
-            let model = try await Task.detached(priority: .userInitiated) { try Model3DFile.load(url) }.value
+            let cancellation = try CADCancellation()
+            let model = try await withTaskCancellationHandler {
+                try Task.checkCancellation()
+                return try await Task.detached(priority: .userInitiated) {
+                    try Model3DFile.load(url, cancellation: cancellation)
+                }.value
+            } onCancel: { cancellation.cancel() }
             return .model(model, sourceFolder(for: entry))
         }
         if let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .audiovisualContent) {
@@ -377,6 +383,18 @@ final class PageController: UIViewController {
         view.addSubview(spinner)
         NSLayoutConstraint.activate([spinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
                                      spinner.centerYAnchor.constraint(equalTo: view.centerYAnchor)])
+        startLoading()
+    }
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        if spinner.superview != nil && task == nil { startLoading() }
+    }
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        task?.cancel()
+        task = nil
+    }
+    private func startLoading() {
         spinner.startAnimating()
         let load = self.load
         task = Task { [weak self] in

@@ -2,7 +2,7 @@
 
 A two-pane file explorer for iPhone. Browse two places at once and copy or move files between them: Newexplorer's own folder, On My iPhone, iCloud Drive, folders from the Files app, the Photos library and shared folders on Windows PCs. Archives open like folders, files open in a built-in viewer, DXF drawings open in a drawing viewer, STL, OBJ, 3MF, STEP and IGES models open in a 3D view, and a storage review finds duplicate files and empty folders.
 
-**Version 0.11.0 (build 16)** · iPhone with iOS 17 or later · SwiftUI
+**Version 0.12.0 (build 17)** · iPhone with iOS 17 or later · SwiftUI
 
 > [!IMPORTANT]
 > The app's bundle ID must be exactly the App ID in your signing profile. If it isn't, the app installs but can't use the files and folders you pick in Files. See [Signing and the bundle ID](#signing-and-the-bundle-id).
@@ -246,7 +246,7 @@ The workflow in `.github/workflows/simulator.yml` runs on every push and pull re
 1. It builds Open CASCADE 7.9.3 for iPhone and simulator with `Scripts/build_occt.sh`, or takes it from the Actions cache. The first build takes about an hour; the cache is used until that script changes.
 2. It builds the app for an iPhone simulator and runs 53 unit tests and 3 UI tests.
 3. On `main` only, it builds an unsigned arm64 Release app with your `BUNDLE_ID`. It checks the version, bundle ID, arm64 code, the embedded AMSMB2 framework and the permission texts, then packages the IPA.
-4. It uploads the artifact **Newexplorer-v0.11.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
+4. It uploads the artifact **Newexplorer-v0.12.0-unsigned**, with the IPA and `SHA256.txt`. Open the run under **Actions** and download it from **Artifacts** while signed in to GitHub.
 
 In a fork, add the `BUNDLE_ID` secret first. GitHub also keeps workflows off in a new fork until you turn them on in its **Actions** tab.
 
@@ -307,6 +307,12 @@ Notes:
 - In 3D, lines are thin and solid: dashes and line widths show only in 2D, and a DXF drawing shows only its first 2,000 fills and 1,000 texts. DXF 3D solids, multileaders and DWG files can't be shown, and STEP and IGES colors aren't used.
 
 ## Version history
+
+### 0.12.0 (build 17)
+
+- STEP and IGES coordinates share storage with the renderer. Closing an unfinished model cancels native transfer, meshing and coordinate extraction. The file-read phase checks cancellation when Open CASCADE returns.
+- Interrupted Windows uploads and replacements write a local recovery record. Reopen the same shared folder using the same host and account. If the destination is missing, the original regains its name. If publication was unacknowledged and both versions exist, the original is preserved alongside the destination as `Recovered-<UUID>`. Unfinished uploads restart through Paste. The clipboard lasts for the current app session.
+- Folder selection and reopening now have their own blocking UI test. Simulator results are available as an Actions artifact. Shared roadmap, verification and device checks are in HANDOVER.md.
 
 ### 0.11.0 (build 16)
 

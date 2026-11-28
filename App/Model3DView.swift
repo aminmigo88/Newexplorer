@@ -14,7 +14,7 @@ enum Model3DFile {
         ["stl", "obj", "3mf", "step", "stp", "iges", "igs"].contains((name as NSString).pathExtension.lowercased())
     }
 
-    static func load(_ url: URL) throws -> Model3DContent {
+    static func load(_ url: URL, cancellation: CADCancellation? = nil) throws -> Model3DContent {
         let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         if size > 500_000_000 { throw ExplorerError("This 3D file is too big to show (over 500 MB).") }
         var model = Model3D()
@@ -28,7 +28,7 @@ enum Model3DFile {
         case "step", "stp", "iges", "igs":
             // Reading a CAD file takes several times its size in memory.
             if size > 200_000_000 { throw ExplorerError("This CAD file is too big to show (over 200 MB).") }
-            model = try CADReader.read(url)
+            model = try CADReader.read(url, cancellation: cancellation)
         default:
             let scene = try objScene(url)
             return .scene(scene)
@@ -281,10 +281,6 @@ final class Model3DViewController: UIViewController {
         }
     }
 
-    private static func floatData(_ values: [Float], count: Int) -> Data {
-        values.withUnsafeBufferPointer { Data(buffer: UnsafeBufferPointer(rebasing: $0[0..<count])) }
-    }
-
     // Indices 0, 1, 2… for vertices that are listed in drawing order.
     private static func element(_ vertexCount: Int, _ primitive: SCNGeometryPrimitiveType, primitives: Int) -> SCNGeometryElement {
         var indices = Data(count: vertexCount * 4)
@@ -301,36 +297,38 @@ final class Model3DViewController: UIViewController {
     }
 
     // Triangles with one normal per face, so edges stay crisp.
-    private static func surfaceNode(_ positions: [Float], _ material: SCNMaterial) -> SCNNode {
-        let vertexCount = (positions.count / 9) * 3
+    private static func surfaceNode(_ coordinates: MeshPositions, _ material: SCNMaterial) -> SCNNode {
+        let vertexCount = (coordinates.count / 9) * 3
         var normals = Data(count: vertexCount * 12)
-        normals.withUnsafeMutableBytes { raw in
-            let n = raw.bindMemory(to: Float.self)
-            var t = 0
-            while t < vertexCount * 3 {
-                let ax = positions[t], ay = positions[t + 1], az = positions[t + 2]
-                let ux = positions[t + 3] - ax, uy = positions[t + 4] - ay, uz = positions[t + 5] - az
-                let vx = positions[t + 6] - ax, vy = positions[t + 7] - ay, vz = positions[t + 8] - az
-                var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-                let size = (nx * nx + ny * ny + nz * nz).squareRoot()
-                if size > 0 {
-                    nx /= size
-                    ny /= size
-                    nz /= size
-                } else {
-                    nx = 0
-                    ny = 0
-                    nz = 1
+        coordinates.withFloats { positions in
+            normals.withUnsafeMutableBytes { raw in
+                let n = raw.bindMemory(to: Float.self)
+                var t = 0
+                while t < vertexCount * 3 {
+                    let ax = positions[t], ay = positions[t + 1], az = positions[t + 2]
+                    let ux = positions[t + 3] - ax, uy = positions[t + 4] - ay, uz = positions[t + 5] - az
+                    let vx = positions[t + 6] - ax, vy = positions[t + 7] - ay, vz = positions[t + 8] - az
+                    var nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+                    let size = (nx * nx + ny * ny + nz * nz).squareRoot()
+                    if size > 0 {
+                        nx /= size
+                        ny /= size
+                        nz /= size
+                    } else {
+                        nx = 0
+                        ny = 0
+                        nz = 1
+                    }
+                    for k in 0..<3 {
+                        n[t + k * 3] = nx
+                        n[t + k * 3 + 1] = ny
+                        n[t + k * 3 + 2] = nz
+                    }
+                    t += 9
                 }
-                for k in 0..<3 {
-                    n[t + k * 3] = nx
-                    n[t + k * 3 + 1] = ny
-                    n[t + k * 3 + 2] = nz
-                }
-                t += 9
             }
         }
-        let vertices = source(floatData(positions, count: vertexCount * 3), .vertex, count: vertexCount)
+        let vertices = source(coordinates.vertexData, .vertex, count: vertexCount)
         let geometry = SCNGeometry(sources: [vertices, source(normals, .normal, count: vertexCount)],
                                    elements: [element(vertexCount, .triangles, primitives: vertexCount / 3)])
         geometry.materials = [material]
@@ -338,7 +336,7 @@ final class Model3DViewController: UIViewController {
     }
 
     // Lines are two ends per segment; points one each.
-    private static func lineNode(_ positions: [Float], _ material: SCNMaterial, primitive: SCNGeometryPrimitiveType) -> SCNNode {
+    private static func lineNode(_ positions: MeshPositions, _ material: SCNMaterial, primitive: SCNGeometryPrimitiveType) -> SCNNode {
         let perPrimitive = primitive == .line ? 2 : 1
         let vertexCount = (positions.count / (3 * perPrimitive)) * perPrimitive
         let shape = element(vertexCount, primitive, primitives: vertexCount / perPrimitive)
@@ -347,7 +345,7 @@ final class Model3DViewController: UIViewController {
             shape.minimumPointScreenSpaceRadius = 2
             shape.maximumPointScreenSpaceRadius = 4
         }
-        let vertices = source(floatData(positions, count: vertexCount * 3), .vertex, count: vertexCount)
+        let vertices = source(positions.vertexData, .vertex, count: vertexCount)
         let geometry = SCNGeometry(sources: [vertices], elements: [shape])
         geometry.materials = [material]
         return SCNNode(geometry: geometry)
@@ -428,7 +426,7 @@ final class Model3DViewController: UIViewController {
         for (from, to) in [(a, b), (b, c), (c, d), (d, a)] {
             frame += [Float(from.x), Float(from.y), Float(from.z), Float(to.x), Float(to.y), Float(to.z)]
         }
-        return Self.lineNode(frame, material(picture.ink, lit: false), primitive: .line)
+        return Self.lineNode(.array(frame), material(picture.ink, lit: false), primitive: .line)
     }
 
     // The box around everything with a shape, in the model's own coordinates.
