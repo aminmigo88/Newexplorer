@@ -30,6 +30,9 @@
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 
+#include <Message_ProgressIndicator.hxx>
+#include <atomic>
+#include <chrono>
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -37,7 +40,23 @@
 #include <new>
 #include <vector>
 
+struct CADCancel { std::atomic<bool> stopped{false}; };
+
+extern "C" CADCancel *CADCancelCreate() { return new (std::nothrow) CADCancel; }
+extern "C" void CADCancelRequest(CADCancel *token) { if (token) token->stopped.store(true); }
+extern "C" void CADCancelFree(CADCancel *token) { delete token; }
+
 namespace {
+struct Cancelled {};
+class ReadProgress : public Message_ProgressIndicator {
+public:
+    explicit ReadProgress(const CADCancel *token) : token_(token) {}
+    Standard_Boolean UserBreak() override { return token_ && token_->stopped.load(); }
+    void check() { if (UserBreak()) throw Cancelled(); }
+private:
+    const CADCancel *token_;
+    void Show(const Message_ProgressScope&, Standard_Boolean) override {}
+};
 
 enum Status { Read = 0, Unreadable = 1, Empty = 2, TooBig = 3, NoMemory = 4 };
 
@@ -45,8 +64,8 @@ enum Status { Read = 0, Unreadable = 1, Empty = 2, TooBig = 3, NoMemory = 4 };
 const long maxSegments = 2000000;
 
 // One file at a time: the readers share their settings.
-std::mutex &gate() {
-    static std::mutex shared;
+std::timed_mutex &gate() {
+    static std::timed_mutex shared;
     return shared;
 }
 
@@ -60,7 +79,7 @@ void quiet() {
 
 // The file's shapes. readable is false when the file can't be read at all; a file read with nothing in it
 // gives a null shape.
-TopoDS_Shape load(const char *path, int format, bool &readable) {
+TopoDS_Shape load(const char *path, int format, bool &readable, ReadProgress &progress) {
     if (format == 1) {
         IGESControl_Reader reader;
         // Only what the drawing shows, not hidden construction geometry.
@@ -68,13 +87,17 @@ TopoDS_Shape load(const char *path, int format, bool &readable) {
         reader.SetReadVisible(Standard_True);
         readable = reader.ReadFile(path) == IFSelect_RetDone;
         if (!readable) return TopoDS_Shape();
-        reader.TransferRoots();
+        progress.check();
+        reader.TransferRoots(progress.Start());
+        progress.check();
         return reader.OneShape();
     }
     STEPControl_Reader reader;
     readable = reader.ReadFile(path) == IFSelect_RetDone;
     if (!readable) return TopoDS_Shape();
-    reader.TransferRoots();
+    progress.check();
+    reader.TransferRoots(progress.Start());
+    progress.check();
     return reader.OneShape();
 }
 
@@ -88,9 +111,10 @@ double diagonal(const TopoDS_Shape &shape) {
     return std::isfinite(size) && size < 1e7 ? size : 1000;
 }
 
-long triangleCount(const TopoDS_Shape &shape) {
+long triangleCount(const TopoDS_Shape &shape, ReadProgress &progress) {
     long count = 0;
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        progress.check();
         TopLoc_Location location;
         const Handle(Poly_Triangulation) &mesh = BRep_Tool::Triangulation(TopoDS::Face(explorer.Current()), location);
         if (!mesh.IsNull()) count += mesh->NbTriangles();
@@ -99,9 +123,10 @@ long triangleCount(const TopoDS_Shape &shape) {
 }
 
 // Corners of every triangle, placed where each face sits in the model.
-long fillTriangles(const TopoDS_Shape &shape, float *out, long capacity) {
+long fillTriangles(const TopoDS_Shape &shape, float *out, long capacity, ReadProgress &progress) {
     long written = 0;
     for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        progress.check();
         const TopoDS_Face &face = TopoDS::Face(explorer.Current());
         TopLoc_Location location;
         const Handle(Poly_Triangulation) &mesh = BRep_Tool::Triangulation(face, location);
@@ -111,6 +136,7 @@ long fillTriangles(const TopoDS_Shape &shape, float *out, long capacity) {
         const bool reversed = face.Orientation() == TopAbs_REVERSED;
         const Standard_Integer nodes = mesh->NbNodes();
         for (Standard_Integer i = 1; i <= mesh->NbTriangles(); ++i) {
+            if ((i & 1023) == 0) progress.check();
             Standard_Integer corners[3];
             mesh->Triangle(i).Get(corners[0], corners[1], corners[2]);
             if (reversed) std::swap(corners[1], corners[2]);
@@ -130,14 +156,17 @@ long fillTriangles(const TopoDS_Shape &shape, float *out, long capacity) {
 }
 
 // Edges that aren't part of a surface (wireframes and loose curves), as short straight segments.
-void freeEdges(const TopoDS_Shape &shape, double deflection, std::vector<float> &out) {
+void freeEdges(const TopoDS_Shape &shape, double deflection, std::vector<float> &out, ReadProgress &progress) {
     for (TopExp_Explorer explorer(shape, TopAbs_EDGE, TopAbs_FACE); explorer.More(); explorer.Next()) {
+        progress.check();
         const TopoDS_Edge &edge = TopoDS::Edge(explorer.Current());
         if (BRep_Tool::Degenerated(edge)) continue;
         try {
             BRepAdaptor_Curve curve(edge);
             GCPnts_TangentialDeflection points(curve, 0.2, deflection);
             for (Standard_Integer i = 1; i < points.NbPoints(); ++i) {
+                if ((i & 1023) == 0) progress.check();
+                if (out.size() / 6 >= maxSegments) return;
                 const gp_Pnt a = points.Value(i);
                 const gp_Pnt b = points.Value(i + 1);
                 out.insert(out.end(), {static_cast<float>(a.X()), static_cast<float>(a.Y()), static_cast<float>(a.Z()),
@@ -150,10 +179,12 @@ void freeEdges(const TopoDS_Shape &shape, double deflection, std::vector<float> 
     }
 }
 
-int read(const char *path, int format, long maxTriangles, CADMesh *result) {
+int read(const char *path, int format, long maxTriangles, CADMesh *result, ReadProgress &progress) {
+    progress.check();
     quiet();
     bool readable = false;
-    TopoDS_Shape shape = load(path, format, readable);
+    TopoDS_Shape shape = load(path, format, readable, progress);
+    progress.check();
     if (!readable) return Unreadable;
     if (shape.IsNull()) return Empty;
     const double size = diagonal(shape);
@@ -161,16 +192,23 @@ int read(const char *path, int format, long maxTriangles, CADMesh *result) {
 
     // Curved faces become triangles no further than 0.1% of the model's size from the real surface.
     double deflection = size * 0.001;
-    {
-        BRepMesh_IncrementalMesh mesher(shape, deflection, Standard_False, 0.35, Standard_True);
-    }
-    long count = triangleCount(shape);
+    auto triangulate = [&](double angle) {
+        progress.check();
+        IMeshTools_Parameters parameters;
+        parameters.Deflection = deflection;
+        parameters.Angle = angle;
+        parameters.InParallel = Standard_True;
+        BRepMesh_IncrementalMesh mesher(shape, parameters, progress.Start());
+        progress.check();
+    };
+    triangulate(0.35);
+    long count = triangleCount(shape, progress);
     if (count > maxTriangles) {
         // Too detailed for a phone: once more, coarser.
         BRepTools::Clean(shape);
         deflection *= 6;
-        BRepMesh_IncrementalMesh mesher(shape, deflection, Standard_False, 0.9, Standard_True);
-        count = triangleCount(shape);
+        triangulate(0.9);
+        count = triangleCount(shape, progress);
         if (count > maxTriangles) return TooBig;
     }
 
@@ -178,11 +216,11 @@ int read(const char *path, int format, long maxTriangles, CADMesh *result) {
         const long capacity = count * 9;
         result->triangles = static_cast<float *>(std::malloc(static_cast<size_t>(capacity) * sizeof(float)));
         if (!result->triangles) return NoMemory;
-        result->triangleFloats = fillTriangles(shape, result->triangles, capacity);
+        result->triangleFloats = fillTriangles(shape, result->triangles, capacity, progress);
     }
 
     std::vector<float> lines;
-    freeEdges(shape, deflection, lines);
+    freeEdges(shape, deflection, lines, progress);
     if (!lines.empty()) {
         result->lines = static_cast<float *>(std::malloc(lines.size() * sizeof(float)));
         if (!result->lines) return NoMemory;
@@ -194,13 +232,18 @@ int read(const char *path, int format, long maxTriangles, CADMesh *result) {
 
 }  // namespace
 
-extern "C" CADMesh *CADMeshRead(const char *path, int format, long maxTriangles) {
+extern "C" CADMesh *CADMeshRead(const char *path, int format, long maxTriangles, const CADCancel *token) {
     CADMesh *result = static_cast<CADMesh *>(std::calloc(1, sizeof(CADMesh)));
     if (!result) return nullptr;
-    std::lock_guard<std::mutex> lock(gate());
     int status = Unreadable;
     try {
-        status = read(path, format, maxTriangles, result);
+        Handle(ReadProgress) progress = new ReadProgress(token);
+        std::unique_lock<std::timed_mutex> lock(gate(), std::defer_lock);
+        while (!lock.try_lock_for(std::chrono::milliseconds(50))) progress->check();
+        status = read(path, format, maxTriangles, result, *progress);
+        progress->check();
+    } catch (const Cancelled &) {
+        status = 5;
     } catch (const std::bad_alloc &) {
         status = NoMemory;
     } catch (const Standard_OutOfMemory &) {

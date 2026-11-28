@@ -4,6 +4,16 @@ import XCTest
 // Saved shares, finding devices, subfolder search, reopening the exact folder,
 // received files and file icons.
 final class BatchTwoTests: XCTestCase {
+    func testPhotoFolderRoutingKeepsEachAlbumIdentity() {
+        let folders: [PhotoFolder] = [.all, .pictures, .videos, .screenshots, .others,
+                                      .album(id: "id/1", name: "Work"), .album(id: "id/2", name: "Work")]
+        for folder in folders {
+            let row = Entry(id: folder.id, name: folder.title, isFolder: true, bytes: nil, date: nil)
+            XCTAssertEqual(PhotoFolder(entry: row), folder)
+        }
+        XCTAssertNil(PhotoFolder(entry: Entry(id: "file", name: "All", isFolder: false, bytes: nil, date: nil)))
+    }
+
     @MainActor func testSavedSharesRememberMatchAndForget() throws {
         let item = SavedShare(host: "laptop.local", share: "Docs", user: "amin")
         defer { SavedShares.shared.forget(item) }

@@ -117,7 +117,7 @@ final class Model3DTests: XCTestCase {
         try Files.fm.moveItem(at: zip, to: url)
 
         var byInk: [DXFInk?: [Float]] = [:]
-        for surface in try ThreeMFReader.read(url) { byInk[surface.ink] = surface.positions }
+        for surface in try ThreeMFReader.read(url) { byInk[surface.ink] = surface.positions.withFloats { Array($0) } }
         XCTAssertEqual(byInk.count, 3)
         // Object 1: made twice as big and raised 10; its second triangle has its own color.
         XCTAssertEqual(byInk[DXFInk.rgb(255, 0, 0)], [0, 0, 10, 2, 0, 10, 0, 2, 10])
@@ -157,7 +157,7 @@ final class Model3DTests: XCTestCase {
         // The 3D face is two triangles; its four edges and the line are lines; the point stays a point.
         XCTAssertEqual(model.triangleCount, 2)
         XCTAssertEqual(model.lines.reduce(0) { $0 + $1.positions.count }, 5 * 2 * 3)
-        XCTAssertEqual(model.points.first?.positions, [0, 0, -5])
+        XCTAssertEqual(model.points.first?.positions.withFloats { Array($0) }, [0, 0, -5])
         // Everything is placed around the drawing's center.
         XCTAssertEqual(model.offset, DXFVec(5, 5, 10))
         XCTAssertEqual(model.extent.low, DXFVec(-5, -5, -10))

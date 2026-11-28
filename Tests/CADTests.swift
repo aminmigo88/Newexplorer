@@ -13,6 +13,25 @@ final class CADTests: XCTestCase {
 
     private func size(_ model: Model3D) -> DXFVec { model.extent.high - model.extent.low }
 
+    func testCancelledCADReadAndImmediateReopen() throws {
+        let base = try Files.workspace()
+        defer { try? Files.fm.removeItem(at: base) }
+        let url = try write(Self.boxSTEP, "box.step", in: base)
+        let token = try CADCancellation()
+        token.cancel()
+        XCTAssertThrowsError(try CADReader.read(url, cancellation: token)) { XCTAssertTrue($0 is CancellationError) }
+        let model = try CADReader.read(url)
+        XCTAssertEqual(model.triangleCount, 12)
+        guard let positions = model.surfaces.first?.positions, case let .native(data) = positions else {
+            return XCTFail("CAD geometry must retain its native allocation")
+        }
+        data.withUnsafeBytes { (original: UnsafeRawBufferPointer) in
+            positions.vertexData.withUnsafeBytes { (rendered: UnsafeRawBufferPointer) in
+                XCTAssertEqual(original.baseAddress, rendered.baseAddress)
+            }
+        }
+    }
+
     func testSTEPBoxAndFilesThatArentCAD() throws {
         let base = try Files.workspace()
         defer { try? Files.fm.removeItem(at: base) }
